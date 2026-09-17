@@ -1,7 +1,7 @@
 :root {
-  font-family: 'Trebuchet MS', sans-serif;
-  color: #17211f;
-  background: #f3f5f4;
+  font-family: 'Be Vietnam Pro', Tahoma, Arial, sans-serif;
+  color: #223548;
+  background: #f4f7fb;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -10,18 +10,14 @@
 
 html {
   min-width: 320px;
-  background: #f3f5f4;
+  background: #f4f7fb;
 }
 
 body {
   min-width: 320px;
   min-height: 100vh;
   margin: 0;
-  background:
-    linear-gradient(rgba(18, 97, 91, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(18, 97, 91, 0.035) 1px, transparent 1px),
-    #f3f5f4;
-  background-size: 28px 28px;
+  background: #f4f7fb;
 }
 
 button,
@@ -30,3 +26,5 @@ textarea,
 select {
   font: inherit;
 }
+
+#app { min-height: 100vh; }

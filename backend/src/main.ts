@@ -25,6 +25,7 @@ async function bootstrap() {
     .setTitle('Dashboard Dieu Hanh API')
     .setDescription('REST API for the Dashboard Dieu Hanh application')
     .setVersion('1.0')
+    .addCookieAuth('dhsxkd_session')
     .addBearerAuth()
     .build();
   SwaggerModule.setup(

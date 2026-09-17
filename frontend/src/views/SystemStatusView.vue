@@ -61,7 +61,7 @@ onMounted(() => systemStore.checkServices())
 .status-page { width: min(1080px, calc(100% - 40px)); margin: 0 auto; padding: 72px 0 48px; }
 .status-page__header { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; }
 .status-page__eyebrow { margin: 0 0 12px; color: #12615b; font-size: 12px; font-weight: 800; }
-.status-page h1 { margin: 0; color: #17211f; font-family: Georgia, 'Times New Roman', serif; font-size: 46px; font-weight: 500; line-height: 1.1; letter-spacing: 0; }
+.status-page h1 { margin: 0; color: #17211f; font-family: 'Be Vietnam Pro', Tahoma, sans-serif; font-size: 46px; font-weight: 700; line-height: 1.1; letter-spacing: -.02em; }
 .status-page__summary { max-width: 620px; margin: 14px 0 0; color: #65716e; font-size: 16px; }
 .status-page__rule { height: 4px; margin: 34px 0; background: linear-gradient(90deg, #12615b 0 18%, #d7a735 18% 25%, #d9dfdc 25%); }
 .status-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }

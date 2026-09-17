@@ -89,6 +89,55 @@ export class OracleService implements OnModuleInit, OnApplicationShutdown {
 		}
 	}
 
+	async executeQuery<T>(
+		statement: string,
+		binds: oracledb.BindParameters = {},
+	): Promise<T[]> {
+		if (!this.pool) {
+			throw new ServiceUnavailableException('Database is not available');
+		}
+
+		const connection = await this.pool.getConnection();
+		try {
+			const result = await connection.execute<T>(statement, binds, {
+				outFormat: oracledb.OUT_FORMAT_OBJECT,
+			});
+			return result.rows ?? [];
+		} finally {
+			await connection.close();
+		}
+	}
+
+	async executeMutation(
+		statement: string,
+		binds: oracledb.BindParameters = {},
+	): Promise<number> {
+		return this.withTransaction(async (connection) => {
+			const result = await connection.execute(statement, binds);
+			return result.rowsAffected ?? 0;
+		});
+	}
+
+	async withTransaction<T>(
+		work: (connection: oracledb.Connection) => Promise<T>,
+	): Promise<T> {
+		if (!this.pool) {
+			throw new ServiceUnavailableException('Database is not available');
+		}
+
+		const connection = await this.pool.getConnection();
+		try {
+			const result = await work(connection);
+			await connection.commit();
+			return result;
+		} catch (error) {
+			await connection.rollback();
+			throw error;
+		} finally {
+			await connection.close();
+		}
+	}
+
 	async checkConnection(): Promise<OracleHealth> {
 		if (!this.pool) {
 			throw new ServiceUnavailableException('Database is not available');

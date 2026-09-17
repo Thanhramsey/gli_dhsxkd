@@ -1,14 +1,21 @@
+<script setup lang="ts">
+import { useRoute } from 'vue-router'
+import DashboardShell from './components/layout/DashboardShell.vue'
+
+const route = useRoute()
+</script>
+
 <template>
-  <v-app>
-    <v-app-bar flat color="surface" border="b">
-      <v-app-bar-title><span class="brand-mark">DHSXKD</span></v-app-bar-title>
-      <span class="app-context">Trung tâm điều hành</span>
-    </v-app-bar>
-    <v-main><router-view /></v-main>
+  <v-app class="app-root">
+    <router-view v-if="route.meta.public" />
+    <DashboardShell v-else>
+      <router-view />
+    </DashboardShell>
   </v-app>
 </template>
 
 <style scoped>
-.brand-mark { color: #12615b; font-family: Georgia, 'Times New Roman', serif; font-size: 21px; font-weight: 700; }
-.app-context { margin-right: 24px; color: #65716e; font-size: 13px; }
+.app-root {
+  min-height: 100vh;
+}
 </style>

@@ -9,6 +9,8 @@ import appConfig from './config/app.config.js';
 import databaseConfig from './config/database.config.js';
 import { validateEnvironment } from './config/environment.validation.js';
 import { OracleModule } from './database/oracle.module.js';
+import { AuthModule } from './modules/auth/auth.module.js';
+import { AdminModule } from './modules/admin/admin.module.js';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { OracleModule } from './database/oracle.module.js';
       validate: validateEnvironment,
     }),
     OracleModule,
+    AuthModule,
+    AdminModule,
   ],
   controllers: [AppController],
   providers: [

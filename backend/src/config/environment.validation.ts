@@ -8,6 +8,7 @@ const REQUIRED_ORACLE_VARIABLES = [
 
 const POSITIVE_INTEGER_VARIABLES = [
   'PORT',
+  'AUTH_SESSION_TTL_SECONDS',
   'ORACLE_PORT',
   'ORACLE_POOL_MIN',
   'ORACLE_POOL_MAX',
@@ -31,6 +32,10 @@ export function validateEnvironment(
         `Missing required Oracle environment variables: ${missingVariables.join(', ')}`,
       );
     }
+  }
+
+  if (!environment.JWT_SECRET) {
+    throw new Error('JWT_SECRET is required');
   }
 
   for (const name of POSITIVE_INTEGER_VARIABLES) {

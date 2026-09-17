@@ -115,4 +115,43 @@ describe('OracleService', () => {
     });
     expect(connection.close).toHaveBeenCalledOnce();
   });
+
+  it('executes a parameterized read query and closes the connection', async () => {
+    const connection = {
+      execute: vi.fn().mockResolvedValue({ rows: [{ MA_ND: 'demo' }] }),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const pool = {
+      getConnection: vi.fn().mockResolvedValue(connection),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.spyOn(oracledb, 'createPool').mockResolvedValue(
+      pool as unknown as oracledb.Pool,
+    );
+    const configService = {
+      get: vi.fn((key: string, defaultValue?: unknown) =>
+        key === 'oracle.enabled' ? true : defaultValue,
+      ),
+      getOrThrow: vi.fn(
+        (key: string) =>
+          ({
+            'oracle.user': 'user',
+            'oracle.password': 'password',
+            'oracle.connectString': 'localhost:1521/ORCLPDB1',
+          })[key],
+      ),
+    } as unknown as ConfigService;
+    const service = new OracleService(configService);
+    await service.onModuleInit();
+
+    await expect(
+      service.executeQuery<{ MA_ND: string }>(
+        'SELECT MA_ND FROM V_NGUOIDUNG_DIABAN WHERE MA_ND = :account',
+        {
+          account: 'demo',
+        },
+      ),
+    ).resolves.toEqual([{ MA_ND: 'demo' }]);
+    expect(connection.close).toHaveBeenCalledOnce();
+  });
 });
