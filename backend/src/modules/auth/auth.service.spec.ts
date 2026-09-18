@@ -8,9 +8,9 @@ const userRecord: UserRecord = {
   userId: '101',
   account: 'demo.user',
   displayName: 'Người dùng demo',
-  groupIds: ['5', '7'],
-  groupId: '5',
-  groupName: 'Quản trị',
+  groupIds: ['3'],
+  groupId: '3',
+  groupName: 'Chuyên viên',
   status: '1',
   employeeId: '201',
   employeeCode: 'NV201',
@@ -48,7 +48,7 @@ describe('AuthService', () => {
     const result = await service.login('demo.user');
 
     expect(authRepository.findByAccount).toHaveBeenCalledWith('demo.user');
-    expect(menuService.getPermissionCodes).toHaveBeenCalledWith(['5', '7']);
+    expect(menuService.getPermissionCodes).toHaveBeenCalledWith(['3']);
     expect(result.token).toBe('signed-token');
     expect(result.user.employee.fullName).toBe('Nguyễn Văn Demo');
     expect(result.user.menuCodes).toEqual(['HOME', 'MENU_MANAGEMENT']);

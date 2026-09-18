@@ -18,9 +18,13 @@ import {
   AssignIdsDto,
   CreateGroupDto,
   CreateMenuDto,
+  CreateReportDto,
+  CreateReportGroupDto,
   CreateUserDto,
   UpdateGroupDto,
   UpdateMenuDto,
+  UpdateReportDto,
+  UpdateReportGroupDto,
   UpdateUserDto,
 } from './dto/admin.dto.js';
 
@@ -100,5 +104,48 @@ export class AdminController {
   @Delete('menus/:id')
   deleteMenu(@Param('id') id: string) {
     return this.service.deleteMenu(id);
+  }
+
+  @Get('report-groups')
+  reportGroups() {
+    return this.service.reportGroups();
+  }
+
+  @Post('report-groups')
+  createReportGroup(@Body() input: CreateReportGroupDto) {
+    return this.service.createReportGroup(input);
+  }
+
+  @Patch('report-groups/:id')
+  updateReportGroup(
+    @Param('id') id: string,
+    @Body() input: UpdateReportGroupDto,
+  ) {
+    return this.service.updateReportGroup(id, input);
+  }
+
+  @Delete('report-groups/:id')
+  deleteReportGroup(@Param('id') id: string) {
+    return this.service.deleteReportGroup(id);
+  }
+
+  @Get('reports')
+  reports(@Query('search') search?: string, @Query('groupId') groupId?: string) {
+    return this.service.reports(search, groupId);
+  }
+
+  @Post('reports')
+  createReport(@Body() input: CreateReportDto) {
+    return this.service.createReport(input);
+  }
+
+  @Patch('reports/:id')
+  updateReport(@Param('id') id: string, @Body() input: UpdateReportDto) {
+    return this.service.updateReport(id, input);
+  }
+
+  @Delete('reports/:id')
+  deleteReport(@Param('id') id: string) {
+    return this.service.deleteReport(id);
   }
 }

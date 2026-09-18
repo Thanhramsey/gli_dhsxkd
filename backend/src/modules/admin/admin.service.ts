@@ -11,9 +11,13 @@ import type {
   AssignIdsDto,
   CreateGroupDto,
   CreateMenuDto,
+  CreateReportDto,
+  CreateReportGroupDto,
   CreateUserDto,
   UpdateGroupDto,
   UpdateMenuDto,
+  UpdateReportDto,
+  UpdateReportGroupDto,
   UpdateUserDto,
 } from './dto/admin.dto.js';
 
@@ -113,6 +117,71 @@ export class AdminService {
     await this.repository.assignGroupMenus(id, input.ids);
   }
 
+  reportGroups() {
+    return this.repository.findReportGroups();
+  }
+
+  async createReportGroup(input: CreateReportGroupDto): Promise<void> {
+    const name = input.name.trim();
+    if ((await this.repository.findReportGroups()).some(
+      (group) => group.name.toUpperCase() === name.toUpperCase(),
+    )) {
+      throw new ConflictException('Tên nhóm báo cáo đã tồn tại');
+    }
+    await this.repository.createReportGroup({ name, note: input.note?.trim() });
+  }
+
+  async updateReportGroup(
+    id: string,
+    input: UpdateReportGroupDto,
+  ): Promise<void> {
+    const groups = await this.repository.findReportGroups();
+    const current = groups.find((group) => group.id === id);
+    if (!current) throw new NotFoundException('Không tìm thấy nhóm báo cáo');
+    const name = input.name?.trim() ?? current.name;
+    if (groups.some(
+      (group) => group.id !== id && group.name.toUpperCase() === name.toUpperCase(),
+    )) {
+      throw new ConflictException('Tên nhóm báo cáo đã tồn tại');
+    }
+    const affected = await this.repository.updateReportGroup(id, {
+      name,
+      note: input.note === undefined ? current.note ?? undefined : input.note.trim(),
+    });
+    if (!affected) throw new NotFoundException('Không tìm thấy nhóm báo cáo');
+  }
+
+  async deleteReportGroup(id: string): Promise<void> {
+    if (await this.repository.countReportsInGroup(id)) {
+      throw new ConflictException('Không thể xóa nhóm đang có báo cáo');
+    }
+    const affected = await this.repository.deleteReportGroup(id);
+    if (!affected) throw new NotFoundException('Không tìm thấy nhóm báo cáo');
+  }
+
+  reports(search?: string, groupId?: string) {
+    return this.repository.findReports(search, groupId);
+  }
+
+  async createReport(input: CreateReportDto): Promise<void> {
+    await this.assertReportGroupExists(input.groupId);
+    await this.repository.createReport(this.normalizeReport(input));
+  }
+
+  async updateReport(id: string, input: UpdateReportDto): Promise<void> {
+    if (!(await this.repository.reportExists(id))) {
+      throw new NotFoundException('Không tìm thấy báo cáo');
+    }
+    await this.assertReportGroupExists(input.groupId);
+    const affected = await this.repository.updateReport(id, this.normalizeReport(input));
+    if (!affected) throw new NotFoundException('Không tìm thấy báo cáo');
+  }
+
+  async deleteReport(id: string): Promise<void> {
+    const affected = await this.repository.deleteReport(id);
+    if (!affected) throw new NotFoundException('Không tìm thấy báo cáo');
+  }
+
   menuCatalog() {
     return this.menuService.getCatalog();
   }
@@ -158,6 +227,31 @@ export class AdminService {
     if (groupIds.some((id) => !existing.has(id))) {
       throw new BadRequestException('Danh sách chứa nhóm người dùng không tồn tại');
     }
+  }
+
+  private async assertReportGroupExists(groupId?: string): Promise<void> {
+    if (!groupId) return;
+    if (!(await this.repository.findReportGroups()).some((group) => group.id === groupId)) {
+      throw new BadRequestException('Nhóm báo cáo không tồn tại');
+    }
+  }
+
+  private normalizeReport(input: CreateReportDto | UpdateReportDto) {
+    return {
+      name: input.name.trim(),
+      sql: input.sql?.trim(),
+      tm1: input.tm1?.trim(),
+      tm2: input.tm2?.trim(),
+      tm3: input.tm3?.trim(),
+      tm4: input.tm4?.trim(),
+      tm5: input.tm5?.trim(),
+      tm6: input.tm6?.trim(),
+      tm7: input.tm7?.trim(),
+      reportView: input.reportView?.trim(),
+      reportExport: input.reportExport?.trim(),
+      groupId: input.groupId?.trim(),
+      procedurePackage: input.procedurePackage?.trim(),
+    };
   }
 
   private async assertParentMenu(parentId?: string): Promise<void> {

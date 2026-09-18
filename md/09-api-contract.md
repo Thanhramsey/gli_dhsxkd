@@ -5,13 +5,17 @@ Tất cả response thành công được bọc theo `{ success, data, meta }`. 
 | Method | Endpoint | Xác thực | Nội dung |
 |---|---|---|---|
 | `POST` | `/auth/login` | Public | Nhận `{ "account": "MA_ND" }`, không nhận mật khẩu |
-| `GET` | `/auth/me` | Session | Hồ sơ, danh sách nhóm và mã menu của người đang đăng nhập |
+| `GET` | `/auth/me` | Session | Hồ sơ, nhóm quyền và mã menu của người đang đăng nhập |
 | `POST` | `/auth/logout` | Public | Xóa session cookie |
-| `GET` | `/menus/mine` | Session | Cây menu hợp nhất từ tất cả nhóm của tài khoản |
+| `GET` | `/menus/mine` | Session | Cây menu của nhóm được map qua `LEVEL_ROLE` |
 | `GET` | `/menus/catalog` | Session + mã menu quản trị | Toàn bộ cây menu để quản trị |
 | `GET` | `/menus/groups` | Session + mã menu quản trị | Danh mục nhóm từ `GLI_NHOM_ND` |
+| `GET/POST` | `/admin/report-groups` | Session + quyền quản trị | Danh sách hoặc thêm nhóm báo cáo |
+| `PATCH/DELETE` | `/admin/report-groups/:id` | Session + quyền quản trị | Sửa hoặc xóa nhóm báo cáo |
+| `GET/POST` | `/admin/reports` | Session + quyền quản trị | Danh sách hoặc thêm báo cáo |
+| `PATCH/DELETE` | `/admin/reports/:id` | Session + quyền quản trị | Sửa hoặc xóa báo cáo |
 
-Response người dùng giữ `groupId` và `groupName` để tương thích giao diện hiện có, đồng thời có `groupIds` chứa đầy đủ các nhóm được gán qua `V_NGUOIDUNG_NHOMND`. `groupName` là tên các nhóm ghép bằng dấu phẩy.
+Response người dùng giữ `groupId`, `groupName` và `groupIds` để tương thích giao diện hiện có. Do `LEVEL_ROLE` là một giá trị đơn, `groupIds` chỉ rỗng hoặc chứa đúng một phần tử.
 
 Mã menu được phép mở trang quản trị cấu hình bằng biến `MENU_ADMIN_CODE`. Giá trị này phải là `MENU_ID` tương ứng trong `GLI_MENU`; frontend dùng biến `VITE_MENU_ADMIN_CODE` cùng giá trị.
 

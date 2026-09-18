@@ -9,11 +9,14 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@codemirror/lang-sql": "^6.10.0",
     "@fontsource/be-vietnam-pro": "^5.3.0",
+    "@mdi/font": "^7.4.47",
     "axios": "^1.20.0",
     "echarts": "^6.1.0",
     "pinia": "^4.0.3",
     "vue": "^3.5.42",
+    "vue-codemirror": "^6.1.1",
     "vue-echarts": "^8.3.0",
     "vue-router": "^4.6.4",
     "vuetify": "^3.13.4"

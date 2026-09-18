@@ -92,6 +92,7 @@ export class OracleService implements OnModuleInit, OnApplicationShutdown {
 	async executeQuery<T>(
 		statement: string,
 		binds: oracledb.BindParameters = {},
+		options: oracledb.ExecuteOptions = {},
 	): Promise<T[]> {
 		if (!this.pool) {
 			throw new ServiceUnavailableException('Database is not available');
@@ -100,6 +101,7 @@ export class OracleService implements OnModuleInit, OnApplicationShutdown {
 		const connection = await this.pool.getConnection();
 		try {
 			const result = await connection.execute<T>(statement, binds, {
+				...options,
 				outFormat: oracledb.OUT_FORMAT_OBJECT,
 			});
 			return result.rows ?? [];

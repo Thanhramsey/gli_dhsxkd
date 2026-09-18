@@ -24,3 +24,22 @@ export interface EmployeeOption {
   name: string;
   unitName: string | null;
 }
+
+export interface ReportGroup {
+  id: string;
+  name: string;
+  note: string | null;
+  reportCount: number;
+}
+
+export interface ReportDefinition {
+  id: string;
+  name: string;
+  sql: string | null;
+  parameters: Array<string | null>;
+  reportView: string | null;
+  reportExport: string | null;
+  groupId: string | null;
+  groupName: string | null;
+  procedurePackage: string | null;
+}

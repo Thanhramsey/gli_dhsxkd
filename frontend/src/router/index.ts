@@ -22,6 +22,18 @@ export const router = createRouter({
       meta: { menuAdmin: true },
     },
     {
+      path: '/report-groups',
+      name: 'report-groups',
+      component: () => import('../views/ReportConfigurationView.vue'),
+      meta: { menuAdmin: true },
+    },
+    {
+      path: '/reports',
+      name: 'reports',
+      component: () => import('../views/ReportConfigurationView.vue'),
+      meta: { menuAdmin: true },
+    },
+    {
       path: '/system-status',
       name: 'system-status',
       component: () => import('../views/SystemStatusView.vue'),

@@ -14,69 +14,65 @@ const formattedDate = new Intl.DateTimeFormat('vi-VN', {
 </script>
 
 <template>
-  <main class="dashboard-page">
+  <v-container class="dashboard-page" fluid>
     <header class="page-heading">
       <div>
         <h1>Tổng quan</h1>
         <p>Xin chào <strong>{{ employee?.fullName || auth.user?.displayName }}</strong>, chúc bạn một ngày làm việc hiệu quả.</p>
       </div>
-      <div class="page-heading__date">{{ formattedDate }}</div>
+      <v-chip class="page-heading__date" prepend-icon="mdi-calendar-outline" variant="outlined">{{ formattedDate }}</v-chip>
     </header>
 
     <v-alert v-if="!auth.user?.groupIds?.length" type="warning" variant="tonal" density="compact" class="mb-5">
       Tài khoản chưa được gán nhóm người dùng nên chưa có menu chức năng.
     </v-alert>
 
-    <section class="summary-cards" aria-label="Thông tin tổng quan">
-      <article class="summary-card summary-card--blue">
+    <v-row class="summary-cards" aria-label="Thông tin tổng quan">
+      <v-col cols="12" sm="6" lg="3"><v-card class="summary-card summary-card--blue" elevation="2">
         <span class="summary-card__icon">ND</span>
         <div><small>NGƯỜI DÙNG</small><strong>{{ auth.user?.account }}</strong><p>{{ employee?.employeeCode || 'Chưa có mã nhân viên' }}</p></div>
-      </article>
-      <article class="summary-card summary-card--cyan">
+      </v-card></v-col>
+      <v-col cols="12" sm="6" lg="3"><v-card class="summary-card summary-card--cyan" elevation="2">
         <span class="summary-card__icon">ĐV</span>
         <div><small>ĐƠN VỊ</small><strong>{{ employee?.unitName || employee?.unitCode || 'Chưa cập nhật' }}</strong><p>{{ employee?.title || 'Chưa cập nhật chức danh' }}</p></div>
-      </article>
-      <article class="summary-card summary-card--indigo">
+      </v-card></v-col>
+      <v-col cols="12" sm="6" lg="3"><v-card class="summary-card summary-card--indigo" elevation="2">
         <span class="summary-card__icon">NQ</span>
         <div><small>NHÓM QUYỀN</small><strong>{{ auth.user?.groupName || 'Chưa được gán' }}</strong><p>{{ auth.user?.menuCodes.length || 0 }} quyền được cấp</p></div>
-      </article>
-      <article class="summary-card summary-card--green">
+      </v-card></v-col>
+      <v-col cols="12" sm="6" lg="3"><v-card class="summary-card summary-card--green" elevation="2">
         <span class="summary-card__icon">MN</span>
         <div><small>MENU HIỂN THỊ</small><strong>{{ auth.menus.length }}</strong><p>Chức năng có thể truy cập</p></div>
-      </article>
-    </section>
+      </v-card></v-col>
+    </v-row>
 
-    <section class="dashboard-grid">
-      <article class="panel quick-access">
+    <v-row class="dashboard-grid">
+      <v-col cols="12" lg="8"><v-card class="panel quick-access" variant="outlined">
         <header class="panel__header">
           <div><h2>Truy cập nhanh</h2><p>Các chức năng được cấp theo nhóm người dùng</p></div>
-          <span>{{ auth.menus.length }} menu</span>
+          <v-chip size="small" color="primary" variant="tonal">{{ auth.menus.length }} menu</v-chip>
         </header>
-        <div v-if="visibleMenus.length" class="quick-grid">
-          <router-link v-for="menu in visibleMenus" :key="menu.id" :to="menu.path || menu.redirect || '/'" class="quick-item">
-            <span class="quick-item__icon">{{ menu.icon ? '◆' : '▦' }}</span>
-            <div><strong>{{ menu.title }}</strong><small>{{ menu.code || menu.name }}</small></div>
-            <span class="quick-item__arrow">›</span>
-          </router-link>
-        </div>
+        <v-list v-if="visibleMenus.length" class="quick-grid" lines="two">
+          <v-list-item v-for="menu in visibleMenus" :key="menu.id" :to="menu.path || menu.redirect || '/'" class="quick-item" :title="menu.title" :subtitle="menu.code || menu.name" prepend-icon="mdi-view-grid-outline" append-icon="mdi-chevron-right" />
+        </v-list>
         <div v-else class="empty-menu">
-          <span>▦</span><strong>Chưa có menu được cấp</strong><p>Vui lòng liên hệ quản trị viên để được phân quyền.</p>
+          <v-icon icon="mdi-view-grid-off-outline" size="34" color="info" /><strong>Chưa có menu được cấp</strong><p>Vui lòng liên hệ quản trị viên để được phân quyền.</p>
         </div>
-      </article>
+      </v-card></v-col>
 
-      <article class="panel employee-panel">
+      <v-col cols="12" lg="4"><v-card class="panel employee-panel" variant="outlined">
         <header class="panel__header"><div><h2>Thông tin nhân viên</h2><p>Hồ sơ đang liên kết với tài khoản</p></div></header>
-        <dl class="employee-info">
-          <div><dt>Họ và tên</dt><dd>{{ employee?.fullName || 'Chưa cập nhật' }}</dd></div>
-          <div><dt>Mã nhân viên</dt><dd>{{ employee?.employeeCode || 'Chưa cập nhật' }}</dd></div>
-          <div><dt>Chức danh</dt><dd>{{ employee?.title || 'Chưa cập nhật' }}</dd></div>
-          <div><dt>Đơn vị</dt><dd>{{ employee?.unitName || employee?.unitCode || 'Chưa cập nhật' }}</dd></div>
-          <div><dt>Email</dt><dd>{{ employee?.email || 'Chưa cập nhật' }}</dd></div>
-          <div><dt>Nguồn dữ liệu</dt><dd><span class="source-chip">{{ auth.user?.source }}</span></dd></div>
-        </dl>
-      </article>
-    </section>
-  </main>
+        <v-list class="employee-info" lines="two">
+          <v-list-item title="Họ và tên" :subtitle="employee?.fullName || 'Chưa cập nhật'" />
+          <v-list-item title="Mã nhân viên" :subtitle="employee?.employeeCode || 'Chưa cập nhật'" />
+          <v-list-item title="Chức danh" :subtitle="employee?.title || 'Chưa cập nhật'" />
+          <v-list-item title="Đơn vị" :subtitle="employee?.unitName || employee?.unitCode || 'Chưa cập nhật'" />
+          <v-list-item title="Email" :subtitle="employee?.email || 'Chưa cập nhật'" />
+          <v-list-item title="Nguồn dữ liệu"><template #append><v-chip size="x-small" color="primary" variant="tonal">{{ auth.user?.source }}</v-chip></template></v-list-item>
+        </v-list>
+      </v-card></v-col>
+    </v-row>
+  </v-container>
 </template>
 
 <style scoped>
@@ -86,7 +82,7 @@ const formattedDate = new Intl.DateTimeFormat('vi-VN', {
 .page-heading p { margin: 6px 0 0; color: #718294; font-size: 13px; }
 .page-heading p strong { color: #0068b5; font-weight: 600; }
 .page-heading__date { padding: 9px 14px; color: #536b7d; background: #fff; border: 1px solid #dce5ed; border-radius: 6px; font-size: 12px; text-transform: capitalize; }
-.summary-cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 20px; }
+.summary-cards { margin-bottom: 8px; }
 .summary-card { position: relative; overflow: hidden; display: flex; align-items: center; gap: 14px; min-height: 116px; padding: 20px; color: #fff; border-radius: 8px; box-shadow: 0 5px 14px rgba(31, 66, 96, .12); }
 .summary-card::after { content: ''; position: absolute; right: -28px; bottom: -42px; width: 105px; height: 105px; border: 20px solid rgba(255,255,255,.08); border-radius: 50%; }
 .summary-card--blue { background: linear-gradient(135deg, #0068b5, #008bc9); }
@@ -99,7 +95,7 @@ const formattedDate = new Intl.DateTimeFormat('vi-VN', {
 .summary-card small { opacity: .78; font-size: 9px; font-weight: 600; letter-spacing: .8px; }
 .summary-card strong { margin-top: 7px; font-size: 16px; font-weight: 700; }
 .summary-card p { margin: 4px 0 0; opacity: .8; font-size: 11px; }
-.dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(320px, .75fr); gap: 20px; }
+.dashboard-grid { align-items: stretch; }
 .panel { overflow: hidden; background: #fff; border: 1px solid #dce5ed; border-radius: 8px; box-shadow: 0 3px 12px rgba(36, 67, 92, .05); }
 .panel__header { display: flex; align-items: center; justify-content: space-between; gap: 20px; min-height: 76px; padding: 16px 20px; border-bottom: 1px solid #e5ebf0; }
 .panel__header h2 { margin: 0; color: #284256; font-size: 17px; font-weight: 700; }
@@ -116,11 +112,8 @@ const formattedDate = new Intl.DateTimeFormat('vi-VN', {
 .quick-item__arrow { color: #92a4af; font-size: 22px; }
 .empty-menu { display: grid; place-items: center; padding: 50px 20px; color: #8495a1; text-align: center; }
 .empty-menu > span { margin-bottom: 10px; color: #58acd1; font-size: 30px; }.empty-menu strong { color: #526a7a; font-size: 14px; }.empty-menu p { margin: 6px 0 0; font-size: 11px; }
-.employee-info { margin: 0; padding: 7px 20px 14px; }
-.employee-info > div { display: grid; grid-template-columns: 112px 1fr; gap: 12px; padding: 13px 0; border-bottom: 1px solid #edf1f4; }
-.employee-info > div:last-child { border-bottom: 0; }
-.employee-info dt { color: #8997a2; font-size: 11px; }.employee-info dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: #344e60; font-size: 12px; font-weight: 600; }
+.employee-info { padding: 7px 12px 14px; }
+.employee-info :deep(.v-list-item){border-bottom:1px solid #edf1f4}.employee-info :deep(.v-list-item:last-child){border-bottom:0}.employee-info :deep(.v-list-item-title){color:#8997a2;font-size:11px}.employee-info :deep(.v-list-item-subtitle){color:#344e60;font-size:12px;font-weight:600;opacity:1}
 .source-chip { padding: 4px 7px; color: #0074b6; background: #eaf5fc; border-radius: 4px; font-size: 9px; }
-@media (max-width: 1100px) { .summary-cards { grid-template-columns: repeat(2, 1fr); }.dashboard-grid { grid-template-columns: 1fr; } }
-@media (max-width: 650px) { .dashboard-page { width: min(100% - 24px, 1380px); padding-top: 20px; }.page-heading { align-items: flex-start; flex-direction: column; }.summary-cards, .quick-grid { grid-template-columns: 1fr; }.page-heading__date { width: 100%; }.summary-card { min-height: 104px; } }
+@media (max-width: 650px) { .dashboard-page { width: min(100% - 24px, 1380px); padding-top: 20px; }.page-heading { align-items: flex-start; flex-direction: column; }.quick-grid { grid-template-columns: 1fr; }.page-heading__date { width: 100%; }.summary-card { min-height: 104px; } }
 </style>

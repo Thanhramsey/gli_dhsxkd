@@ -6,6 +6,10 @@ import type {
   EmployeeOption,
   MenuInput,
   MenuItem,
+  ReportDefinition,
+  ReportGroup,
+  ReportGroupInput,
+  ReportInput,
   UserInput,
 } from '../types/admin'
 
@@ -55,5 +59,33 @@ export const adminApi = {
   },
   async deleteMenu(id: string): Promise<void> {
     await http.delete(`/admin/menus/${id}`)
+  },
+  async reportGroups(): Promise<ReportGroup[]> {
+    const response = await http.get<ApiResponse<ReportGroup[]>>('/admin/report-groups')
+    return response.data.data
+  },
+  async createReportGroup(input: ReportGroupInput): Promise<void> {
+    await http.post('/admin/report-groups', input)
+  },
+  async updateReportGroup(id: string, input: ReportGroupInput): Promise<void> {
+    await http.patch(`/admin/report-groups/${id}`, input)
+  },
+  async deleteReportGroup(id: string): Promise<void> {
+    await http.delete(`/admin/report-groups/${id}`)
+  },
+  async reports(search = '', groupId = ''): Promise<ReportDefinition[]> {
+    const response = await http.get<ApiResponse<ReportDefinition[]>>('/admin/reports', {
+      params: { search, groupId },
+    })
+    return response.data.data
+  },
+  async createReport(input: ReportInput): Promise<void> {
+    await http.post('/admin/reports', input)
+  },
+  async updateReport(id: string, input: ReportInput): Promise<void> {
+    await http.patch(`/admin/reports/${id}`, input)
+  },
+  async deleteReport(id: string): Promise<void> {
+    await http.delete(`/admin/reports/${id}`)
   },
 }

@@ -3,7 +3,7 @@ import { authApi } from '../api/auth.api'
 import type { AuthUser, MenuItem } from '../types/auth'
 
 const menuAdminCode = import.meta.env.VITE_MENU_ADMIN_CODE || 'MENU_MANAGEMENT'
-const adminGroupIds = (import.meta.env.VITE_ADMIN_GROUP_IDS || '1').split(',').map((id: string) => id.trim())
+const adminGroupIds = (import.meta.env.VITE_ADMIN_GROUP_IDS || '0').split(',').map((id: string) => id.trim())
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({

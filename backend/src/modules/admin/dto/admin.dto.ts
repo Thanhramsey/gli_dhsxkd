@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayUnique,
+  ArrayMaxSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -16,13 +17,13 @@ export class CreateUserDto {
   @IsString() @IsNotEmpty() @MaxLength(100) account!: string;
   @IsString() @IsNotEmpty() employeeId!: string;
   @IsOptional() @Type(() => Number) @IsInt() @IsIn([0, 1]) status = 1;
-  @IsArray() @ArrayUnique() @IsString({ each: true }) groupIds!: string[];
+  @IsArray() @ArrayUnique() @ArrayMaxSize(1) @IsString({ each: true }) groupIds!: string[];
 }
 
 export class UpdateUserDto {
   @IsOptional() @IsString() @IsNotEmpty() employeeId?: string;
   @IsOptional() @Type(() => Number) @IsInt() @IsIn([0, 1]) status?: number;
-  @IsOptional() @IsArray() @ArrayUnique() @IsString({ each: true }) groupIds?: string[];
+  @IsOptional() @IsArray() @ArrayUnique() @ArrayMaxSize(1) @IsString({ each: true }) groupIds?: string[];
 }
 
 export class CreateGroupDto {
@@ -36,6 +37,34 @@ export class UpdateGroupDto {
 export class AssignIdsDto {
   @IsArray() @ArrayUnique() @IsString({ each: true }) ids!: string[];
 }
+
+export class CreateReportGroupDto {
+  @IsString() @IsNotEmpty() @MaxLength(200) name!: string;
+  @IsOptional() @IsString() @MaxLength(1000) note?: string;
+}
+
+export class UpdateReportGroupDto {
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) name?: string;
+  @IsOptional() @IsString() @MaxLength(1000) note?: string;
+}
+
+export class CreateReportDto {
+  @IsString() @IsNotEmpty() @MaxLength(500) name!: string;
+  @IsOptional() @IsString() sql?: string;
+  @IsOptional() @IsString() @MaxLength(500) tm1?: string;
+  @IsOptional() @IsString() @MaxLength(500) tm2?: string;
+  @IsOptional() @IsString() @MaxLength(500) tm3?: string;
+  @IsOptional() @IsString() @MaxLength(500) tm4?: string;
+  @IsOptional() @IsString() @MaxLength(500) tm5?: string;
+  @IsOptional() @IsString() @MaxLength(500) tm6?: string;
+  @IsOptional() @IsString() @MaxLength(500) tm7?: string;
+  @IsOptional() @IsString() @MaxLength(500) reportView?: string;
+  @IsOptional() @IsString() @MaxLength(500) reportExport?: string;
+  @IsOptional() @IsString() groupId?: string;
+  @IsOptional() @IsString() @MaxLength(500) procedurePackage?: string;
+}
+
+export class UpdateReportDto extends CreateReportDto {}
 
 export class CreateMenuDto {
   @IsString() @IsNotEmpty() @MaxLength(100) name!: string;

@@ -13,7 +13,7 @@ export default registerAs('app', () => ({
   sessionTtlSeconds: Number(process.env.AUTH_SESSION_TTL_SECONDS ?? 28_800),
   secureCookie: process.env.AUTH_COOKIE_SECURE === 'true',
   menuAdminCode: process.env.MENU_ADMIN_CODE ?? 'MENU_MANAGEMENT',
-  adminGroupIds: (process.env.ADMIN_GROUP_IDS ?? '1')
+  adminGroupIds: (process.env.ADMIN_GROUP_IDS ?? '0')
     .split(',')
     .map((id) => id.trim())
     .filter(Boolean),

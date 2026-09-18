@@ -1,5 +1,14 @@
 # Frontend — Vue3 + Vuetify3 Conventions
 
+## Quy tắc ưu tiên Vuetify (bắt buộc)
+
+- Trước khi tạo một UI element/component mới, phải kiểm tra Vuetify 3 đã có component tương ứng hay chưa.
+- Nếu Vuetify đã có thì dùng trực tiếp component của Vuetify và cấu hình bằng `props`, `slots`, theme hoặc utility classes; không tự viết lại bằng HTML/CSS/JavaScript.
+- Quy tắc này áp dụng cho button, input, select, checkbox, dialog, menu, navigation drawer, app bar, table, tabs, expansion panel, alert, snackbar, tooltip, avatar, pagination, loading và các element phổ biến khác.
+- Chỉ tạo component riêng khi đó là component nghiệp vụ của dự án hoặc Vuetify không đáp ứng được yêu cầu. Nếu cần tái sử dụng cấu hình, ưu tiên viết wrapper mỏng bao quanh component Vuetify.
+- Không tự dựng lại hành vi Vuetify đã xử lý sẵn như focus, keyboard navigation, accessibility, responsive, loading, disabled và validation.
+- Khi chỉnh sửa màn hình cũ, nếu gặp element tự viết có component Vuetify tương đương thì ưu tiên chuyển sang Vuetify trong phạm vi thay đổi hiện tại.
+
 ## Stack
 
 - Vue 3 (`<script setup>` + Composition API — không dùng Options API cho code mới).
@@ -90,6 +99,7 @@ export const useDashboardStore = defineStore('dashboard', {
 
 ## Vuetify — quy ước UI
 
+- Mặc định sử dụng component Vuetify thay vì HTML element tự tạo cho các thành phần tương tác và bố cục mà Vuetify đã hỗ trợ.
 - Dùng hệ thống layout của Vuetify (`v-container`, `v-row`, `v-col`) để dashboard responsive tốt trên nhiều màn hình.
 - Dùng `v-card` làm khung chuẩn cho mỗi widget/chart, tiêu đề rõ ràng, có slot cho filter riêng nếu cần.
 - Theme màu: định nghĩa 1 lần trong `plugins/vuetify.ts` (light/dark nếu cần), không hardcode màu trong từng component

@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import oracledb from 'oracledb';
 import { OracleService } from '../../database/oracle.service.js';
-import type { AdminGroup, AdminUser, EmployeeOption } from './admin.types.js';
+import type {
+  AdminGroup,
+  AdminUser,
+  EmployeeOption,
+  ReportDefinition,
+  ReportGroup,
+} from './admin.types.js';
 
 interface UserRow {
   MA_ND: unknown;
@@ -11,10 +17,7 @@ interface UserRow {
   MA_NV: unknown;
   TEN_NV: unknown;
   TEN_DV: unknown;
-}
-
-interface MembershipRow {
-  MA_ND: unknown;
+  LEVEL_ROLE: unknown;
   NHOMND_ID: unknown;
   TEN_NHOMND: unknown;
 }
@@ -37,6 +40,31 @@ interface EmployeeRow {
   TEN_DV: unknown;
 }
 
+interface ReportGroupRow {
+  NHOMBC_ID: unknown;
+  NHOM_BC: unknown;
+  GHICHU: unknown;
+  REPORT_COUNT: unknown;
+}
+
+interface ReportRow {
+  BAOCAO_ID: unknown;
+  TEN_BC: unknown;
+  STRING_SQL: unknown;
+  TM1: unknown;
+  TM2: unknown;
+  TM3: unknown;
+  TM4: unknown;
+  TM5: unknown;
+  TM6: unknown;
+  TM7: unknown;
+  RPT_VIEW: unknown;
+  RPT_EXPORT: unknown;
+  NHOMBC_ID: unknown;
+  NHOM_BC: unknown;
+  PROC_PK: unknown;
+}
+
 @Injectable()
 export class AdminRepository {
   constructor(private readonly oracleService: OracleService) {}
@@ -46,15 +74,17 @@ export class AdminRepository {
     const rows = await this.oracleService.executeQuery<UserRow>(
       `SELECT * FROM (
          SELECT u.MA_ND, NVL(nv.TEN_NV, u.TEN_NV) AS TEN_ND,
-                u.NHANVIEN_ID, u.TRANGTHAI,
+                u.NHANVIEN_ID, u.TRANGTHAI, u.LEVEL_ROLE,
                 NVL(nv.MA_NV, u.MA_NV) AS MA_NV,
-                NVL(nv.TEN_NV, u.TEN_NV) AS TEN_NV, dv.TEN_DV
+                NVL(nv.TEN_NV, u.TEN_NV) AS TEN_NV, dv.TEN_DV,
+                g.NHOMND_ID, g.TEN_NHOMND
            FROM V_NGUOIDUNG_DIABAN u
            LEFT JOIN V_NHANVIEN nv ON nv.NHANVIEN_ID = u.NHANVIEN_ID
            LEFT JOIN V_DONVI dv ON dv.DONVI_ID = NVL(nv.DONVI_ID, u.DONVI_ID)
+           LEFT JOIN GLI_NHOM_ND g ON g.NHOMND_ID = u.LEVEL_ROLE
           WHERE :searchText IS NULL
              OR UPPER(u.MA_ND) LIKE :searchLike
-             OR UPPER(u.TEN_ND) LIKE :searchLike
+             OR UPPER(u.TEN_NV) LIKE :searchLike
              OR UPPER(nv.TEN_NV) LIKE :searchLike
           ORDER BY u.MA_ND
        ) WHERE ROWNUM <= 500`,
@@ -63,19 +93,8 @@ export class AdminRepository {
         searchLike: normalizedSearch ? `%${normalizedSearch}%` : null,
       },
     );
-    const memberships = await this.oracleService.executeQuery<MembershipRow>(
-      `SELECT ung.MA_ND, ung.NHOMND_ID, g.TEN_NHOMND
-         FROM V_NGUOIDUNG_NHOMND ung
-         LEFT JOIN GLI_NHOM_ND g ON g.NHOMND_ID = ung.NHOMND_ID
-        ORDER BY ung.MA_ND, g.TEN_NHOMND`,
-    );
-    const byAccount = new Map<string, MembershipRow[]>();
-    for (const membership of memberships) {
-      const account = this.text(membership.MA_ND);
-      byAccount.set(account, [...(byAccount.get(account) ?? []), membership]);
-    }
     return rows.map((row) => {
-      const assigned = byAccount.get(this.text(row.MA_ND)) ?? [];
+      const groupId = this.nullableText(row.NHOMND_ID);
       return {
         id: this.text(row.MA_ND),
         account: this.text(row.MA_ND),
@@ -85,11 +104,10 @@ export class AdminRepository {
         employeeName: this.nullableText(row.TEN_NV),
         unitName: this.nullableText(row.TEN_DV),
         status: Number(row.TRANGTHAI ?? 0),
-        groupIds: assigned.map((item) => this.text(item.NHOMND_ID)),
-        groupNames: assigned.map(
-          (item) =>
-            this.nullableText(item.TEN_NHOMND) ?? this.text(item.NHOMND_ID),
-        ),
+        groupIds: groupId ? [groupId] : [],
+        groupNames: groupId
+          ? [this.nullableText(row.TEN_NHOMND) ?? groupId]
+          : [],
       };
     });
   }
@@ -128,9 +146,10 @@ export class AdminRepository {
     return this.oracleService.withTransaction(async (connection) => {
       const result = await connection.execute(
         `INSERT INTO V_NGUOIDUNG_DIABAN
-          (MA_ND, MA_NV, TEN_NV, MATKHAU, DONVI_ID, MA_DV, NHANVIEN_ID, TRANGTHAI)
+          (MA_ND, MA_NV, TEN_NV, MATKHAU, DONVI_ID, MA_DV,
+           NHANVIEN_ID, TRANGTHAI, LEVEL_ROLE)
          SELECT :account, nv.MA_NV, nv.TEN_NV, :password,
-                nv.DONVI_ID, dv.MA_DV, nv.NHANVIEN_ID, :status
+                nv.DONVI_ID, dv.MA_DV, nv.NHANVIEN_ID, :status, :groupId
            FROM V_NHANVIEN nv
            JOIN V_DONVI dv ON dv.DONVI_ID = nv.DONVI_ID
           WHERE nv.NHANVIEN_ID = :employeeId`,
@@ -139,11 +158,10 @@ export class AdminRepository {
           password: 'SSO_PENDING',
           employeeId: input.employeeId,
           status: input.status,
+          groupId: input.groupIds[0] ?? null,
         },
       );
-      if (!result.rowsAffected) return 0;
-      await this.replaceUserGroups(connection, input.account, input.groupIds);
-      return result.rowsAffected;
+      return result.rowsAffected ?? 0;
     });
   }
 
@@ -158,9 +176,10 @@ export class AdminRepository {
     return this.oracleService.withTransaction(async (connection) => {
       const result = await connection.execute(
         `UPDATE V_NGUOIDUNG_DIABAN u
-            SET (MA_NV, TEN_NV, DONVI_ID, MA_DV, NHANVIEN_ID, TRANGTHAI) =
+            SET (MA_NV, TEN_NV, DONVI_ID, MA_DV, NHANVIEN_ID,
+                 TRANGTHAI, LEVEL_ROLE) =
                 (SELECT nv.MA_NV, nv.TEN_NV, nv.DONVI_ID, dv.MA_DV,
-                        nv.NHANVIEN_ID, :status
+                        nv.NHANVIEN_ID, :status, :groupId
                    FROM V_NHANVIEN nv
                    JOIN V_DONVI dv ON dv.DONVI_ID = nv.DONVI_ID
                   WHERE nv.NHANVIEN_ID = :employeeId)
@@ -171,35 +190,26 @@ export class AdminRepository {
           account,
           employeeId: input.employeeId,
           status: input.status,
+          groupId: input.groupIds[0] ?? null,
         },
       );
-      if (result.rowsAffected) {
-        await this.replaceUserGroups(connection, account, input.groupIds);
-      }
       return result.rowsAffected ?? 0;
     });
   }
 
   async deleteUser(account: string): Promise<number> {
-    return this.oracleService.withTransaction(async (connection) => {
-      await connection.execute(
-        'DELETE FROM V_NGUOIDUNG_NHOMND WHERE MA_ND = :account',
-        { account },
-      );
-      const result = await connection.execute(
-        'DELETE FROM V_NGUOIDUNG_DIABAN WHERE MA_ND = :account',
-        { account },
-      );
-      return result.rowsAffected ?? 0;
-    });
+    return this.oracleService.executeMutation(
+      'DELETE FROM V_NGUOIDUNG_DIABAN WHERE MA_ND = :account',
+      { account },
+    );
   }
 
   async findGroups(): Promise<AdminGroup[]> {
     const [groups, assignments] = await Promise.all([
       this.oracleService.executeQuery<GroupRow>(
         `SELECT g.NHOMND_ID, g.TEN_NHOMND,
-                (SELECT COUNT(*) FROM V_NGUOIDUNG_NHOMND ung
-                  WHERE ung.NHOMND_ID = g.NHOMND_ID) AS USER_COUNT
+                (SELECT COUNT(*) FROM V_NGUOIDUNG_DIABAN u
+                  WHERE u.LEVEL_ROLE = g.NHOMND_ID) AS USER_COUNT
            FROM GLI_NHOM_ND g
           ORDER BY g.TEN_NHOMND`,
       ),
@@ -250,11 +260,11 @@ export class AdminRepository {
   deleteGroup(id: string): Promise<number> {
     return this.oracleService.withTransaction(async (connection) => {
       await connection.execute(
-        'DELETE FROM GLI_NHOM_ND_MENU WHERE NHOMND_ID = :id',
+        'UPDATE V_NGUOIDUNG_DIABAN SET LEVEL_ROLE = NULL WHERE LEVEL_ROLE = :id',
         { id },
       );
       await connection.execute(
-        'DELETE FROM V_NGUOIDUNG_NHOMND WHERE NHOMND_ID = :id',
+        'DELETE FROM GLI_NHOM_ND_MENU WHERE NHOMND_ID = :id',
         { id },
       );
       const result = await connection.execute(
@@ -279,6 +289,152 @@ export class AdminRepository {
         );
       }
     });
+  }
+
+  async findReportGroups(): Promise<ReportGroup[]> {
+    const rows = await this.oracleService.executeQuery<ReportGroupRow>(
+      `SELECT g.NHOMBC_ID, g.NHOM_BC, g.GHICHU,
+              (SELECT COUNT(*) FROM ONEBSS_BAOCAO_GLI b
+                WHERE b.NHOMBC_ID = g.NHOMBC_ID) AS REPORT_COUNT
+         FROM ONEBSS_NHOMBC_GLI g
+        ORDER BY g.NHOM_BC, g.NHOMBC_ID`,
+    );
+    return rows.map((row) => ({
+      id: this.text(row.NHOMBC_ID),
+      name: this.text(row.NHOM_BC),
+      note: this.nullableText(row.GHICHU),
+      reportCount: Number(row.REPORT_COUNT ?? 0),
+    }));
+  }
+
+  createReportGroup(input: { name: string; note?: string }): Promise<void> {
+    return this.oracleService.withTransaction(async (connection) => {
+      await connection.execute('LOCK TABLE ONEBSS_NHOMBC_GLI IN EXCLUSIVE MODE');
+      const idResult = await connection.execute<{ NEXT_ID: number }>(
+        'SELECT NVL(MAX(NHOMBC_ID), 0) + 1 AS NEXT_ID FROM ONEBSS_NHOMBC_GLI',
+        {},
+        { outFormat: oracledb.OUT_FORMAT_OBJECT },
+      );
+      await connection.execute(
+        `INSERT INTO ONEBSS_NHOMBC_GLI (NHOMBC_ID, NHOM_BC, GHICHU)
+         VALUES (:id, :name, :note)`,
+        {
+          id: idResult.rows?.[0]?.NEXT_ID,
+          name: input.name,
+          note: input.note || null,
+        },
+      );
+    });
+  }
+
+  updateReportGroup(
+    id: string,
+    input: { name: string; note?: string },
+  ): Promise<number> {
+    return this.oracleService.executeMutation(
+      `UPDATE ONEBSS_NHOMBC_GLI
+          SET NHOM_BC = :name, GHICHU = :note
+        WHERE NHOMBC_ID = :id`,
+      { id, name: input.name, note: input.note || null },
+    );
+  }
+
+  countReportsInGroup(id: string): Promise<number> {
+    return this.oracleService
+      .executeQuery<{ TOTAL: number }>(
+        'SELECT COUNT(*) AS TOTAL FROM ONEBSS_BAOCAO_GLI WHERE NHOMBC_ID = :id',
+        { id },
+      )
+      .then((rows) => Number(rows[0]?.TOTAL ?? 0));
+  }
+
+  deleteReportGroup(id: string): Promise<number> {
+    return this.oracleService.executeMutation(
+      'DELETE FROM ONEBSS_NHOMBC_GLI WHERE NHOMBC_ID = :id',
+      { id },
+    );
+  }
+
+  async findReports(search = '', groupId = ''): Promise<ReportDefinition[]> {
+    const normalizedSearch = search.trim().toUpperCase();
+    const rows = await this.oracleService.executeQuery<ReportRow>(
+      `SELECT b.BAOCAO_ID, b.TEN_BC, b.STRING_SQL,
+              b.TM1, b.TM2, b.TM3, b.TM4, b.TM5, b.TM6, b.TM7,
+              b.RPT_VIEW, b.RPT_EXPORT, b.NHOMBC_ID, g.NHOM_BC, b.PROC_PK
+         FROM ONEBSS_BAOCAO_GLI b
+         LEFT JOIN ONEBSS_NHOMBC_GLI g ON g.NHOMBC_ID = b.NHOMBC_ID
+        WHERE (:searchText IS NULL
+               OR UPPER(b.TEN_BC) LIKE :searchLike
+               OR TO_CHAR(b.BAOCAO_ID) LIKE :searchLike)
+          AND (:groupId IS NULL OR b.NHOMBC_ID = :groupId)
+        ORDER BY g.NHOM_BC, b.TEN_BC, b.BAOCAO_ID`,
+      {
+        searchText: normalizedSearch || null,
+        searchLike: normalizedSearch ? `%${normalizedSearch}%` : null,
+        groupId: groupId || null,
+      },
+      { fetchInfo: { STRING_SQL: { type: oracledb.STRING } } },
+    );
+    return rows.map((row) => ({
+      id: this.text(row.BAOCAO_ID),
+      name: this.text(row.TEN_BC),
+      sql: this.nullableText(row.STRING_SQL),
+      parameters: [row.TM1, row.TM2, row.TM3, row.TM4, row.TM5, row.TM6, row.TM7]
+        .map((value) => this.nullableText(value)),
+      reportView: this.nullableText(row.RPT_VIEW),
+      reportExport: this.nullableText(row.RPT_EXPORT),
+      groupId: this.nullableText(row.NHOMBC_ID),
+      groupName: this.nullableText(row.NHOM_BC),
+      procedurePackage: this.nullableText(row.PROC_PK),
+    }));
+  }
+
+  createReport(input: ReportMutationInput): Promise<void> {
+    return this.oracleService.withTransaction(async (connection) => {
+      await connection.execute('LOCK TABLE ONEBSS_BAOCAO_GLI IN EXCLUSIVE MODE');
+      const idResult = await connection.execute<{ NEXT_ID: number }>(
+        'SELECT NVL(MAX(BAOCAO_ID), 0) + 1 AS NEXT_ID FROM ONEBSS_BAOCAO_GLI',
+        {},
+        { outFormat: oracledb.OUT_FORMAT_OBJECT },
+      );
+      await connection.execute(
+        `INSERT INTO ONEBSS_BAOCAO_GLI
+          (BAOCAO_ID, TEN_BC, STRING_SQL, TM1, TM2, TM3, TM4, TM5, TM6, TM7,
+           RPT_VIEW, RPT_EXPORT, NHOMBC_ID, PROC_PK)
+         VALUES
+          (:id, :name, :sql, :tm1, :tm2, :tm3, :tm4, :tm5, :tm6, :tm7,
+           :reportView, :reportExport, :groupId, :procedurePackage)`,
+        { id: idResult.rows?.[0]?.NEXT_ID, ...this.reportBinds(input) },
+      );
+    });
+  }
+
+  async reportExists(id: string): Promise<boolean> {
+    const rows = await this.oracleService.executeQuery<{ TOTAL: number }>(
+      'SELECT COUNT(*) AS TOTAL FROM ONEBSS_BAOCAO_GLI WHERE BAOCAO_ID = :id',
+      { id },
+    );
+    return Number(rows[0]?.TOTAL ?? 0) > 0;
+  }
+
+  updateReport(id: string, input: ReportMutationInput): Promise<number> {
+    return this.oracleService.executeMutation(
+      `UPDATE ONEBSS_BAOCAO_GLI
+          SET TEN_BC = :name, STRING_SQL = :sql,
+              TM1 = :tm1, TM2 = :tm2, TM3 = :tm3, TM4 = :tm4,
+              TM5 = :tm5, TM6 = :tm6, TM7 = :tm7,
+              RPT_VIEW = :reportView, RPT_EXPORT = :reportExport,
+              NHOMBC_ID = :groupId, PROC_PK = :procedurePackage
+        WHERE BAOCAO_ID = :id`,
+      { id, ...this.reportBinds(input) },
+    );
+  }
+
+  deleteReport(id: string): Promise<number> {
+    return this.oracleService.executeMutation(
+      'DELETE FROM ONEBSS_BAOCAO_GLI WHERE BAOCAO_ID = :id',
+      { id },
+    );
   }
 
   async createMenu(input: {
@@ -363,24 +519,6 @@ export class AdminRepository {
     });
   }
 
-  private async replaceUserGroups(
-    connection: oracledb.Connection,
-    account: string,
-    groupIds: string[],
-  ): Promise<void> {
-    await connection.execute(
-      'DELETE FROM V_NGUOIDUNG_NHOMND WHERE MA_ND = :account',
-      { account },
-    );
-    for (const groupId of groupIds) {
-      await connection.execute(
-        `INSERT INTO V_NGUOIDUNG_NHOMND (MA_ND, NHOMND_ID)
-         VALUES (:account, :groupId)`,
-        { account, groupId },
-      );
-    }
-  }
-
   private text(value: unknown): string {
     return value === null || value === undefined ? '' : String(value).trim();
   }
@@ -388,4 +526,38 @@ export class AdminRepository {
   private nullableText(value: unknown): string | null {
     return this.text(value) || null;
   }
+
+  private reportBinds(input: ReportMutationInput) {
+    return {
+      name: input.name,
+      sql: input.sql || null,
+      tm1: input.tm1 || null,
+      tm2: input.tm2 || null,
+      tm3: input.tm3 || null,
+      tm4: input.tm4 || null,
+      tm5: input.tm5 || null,
+      tm6: input.tm6 || null,
+      tm7: input.tm7 || null,
+      reportView: input.reportView || null,
+      reportExport: input.reportExport || null,
+      groupId: input.groupId || null,
+      procedurePackage: input.procedurePackage || null,
+    };
+  }
+}
+
+interface ReportMutationInput {
+  name: string;
+  sql?: string;
+  tm1?: string;
+  tm2?: string;
+  tm3?: string;
+  tm4?: string;
+  tm5?: string;
+  tm6?: string;
+  tm7?: string;
+  reportView?: string;
+  reportExport?: string;
+  groupId?: string;
+  procedurePackage?: string;
 }
