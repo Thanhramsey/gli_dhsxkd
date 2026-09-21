@@ -11,6 +11,12 @@ import { BroadbandQueryDto } from './dto/broadband-query.dto.js';
 export class BroadbandController {
   constructor(private readonly service: BroadbandService) {}
 
+  @Get('units')
+  @ApiOperation({ summary: 'Danh mục đơn vị dùng để lọc báo cáo băng rộng' })
+  units() {
+    return this.service.units();
+  }
+
   @Get('procedures')
   @ApiOperation({ summary: 'Danh sách báo cáo trong package PACK_BR' })
   procedures() {

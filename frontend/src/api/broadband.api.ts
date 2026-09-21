@@ -4,9 +4,15 @@ import type {
   BroadbandFilter,
   BroadbandProcedureKey,
   BroadbandProcedureResult,
+  BroadbandUnit,
 } from '../types/broadband'
 
 export const broadbandApi = {
+  async units(): Promise<BroadbandUnit[]> {
+    const response = await http.get<ApiResponse<BroadbandUnit[]>>('/broadband/units')
+    return response.data.data
+  },
+
   async execute(
     key: BroadbandProcedureKey,
     filter: BroadbandFilter,

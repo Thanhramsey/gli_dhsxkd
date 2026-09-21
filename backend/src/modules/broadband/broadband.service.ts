@@ -14,6 +14,25 @@ const PACKAGE_NAME = 'NBH_CDS_NEW.PACK_BR';
 export class BroadbandService {
   constructor(private readonly oracleService: OracleService) {}
 
+  async units(): Promise<Array<{ id: number; name: string }>> {
+    const rows = await this.oracleService.executeQuery<{
+      DONVI_ID: unknown;
+      TEN_DV: unknown;
+    }>(
+      `SELECT DONVI_ID, TEN_DV
+         FROM DON_VI
+        WHERE DONVI_ID IS NOT NULL
+        ORDER BY TEN_DV, DONVI_ID`,
+    );
+
+    return rows
+      .map((row) => ({
+        id: Number(row.DONVI_ID),
+        name: String(row.TEN_DV ?? row.DONVI_ID).trim(),
+      }))
+      .filter((unit) => Number.isFinite(unit.id));
+  }
+
   procedures() {
     return Object.entries(BROADBAND_PROCEDURES).map(([key, value]) => ({
       key,

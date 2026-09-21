@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { broadbandApi } from '../api/broadband.api'
 import { getAuthErrorMessage } from '../api/auth.api'
+import ComparisonBarChart from '../components/charts/ComparisonBarChart.vue'
 import type {
   BroadbandFilter,
   BroadbandProcedureKey,
+  BroadbandUnit,
 } from '../types/broadband'
 
 interface ProcedureDefinition {
@@ -35,6 +37,12 @@ const today = new Date()
 const fromDate = ref<Date | null>(new Date(today.getFullYear(), today.getMonth(), 1))
 const toDate = ref<Date | null>(today)
 const selectedProcedureKey = ref<BroadbandProcedureKey>('ptm-employee')
+const selectedUnitId = ref(0)
+const selectedMetricKey = ref<string | null>(null)
+const selectedGroupKey = ref<string | null>(null)
+const unitSearch = ref('')
+const units = ref<BroadbandUnit[]>([])
+const unitsLoading = ref(false)
 const generalError = ref('')
 function emptyState(): ProcedureState {
   return { loading: false, hasRun: false, error: '', rows: [], durationMs: 0 }
@@ -62,6 +70,13 @@ const columnFilters = reactive<Record<BroadbandProcedureKey, Record<string, stri
 const selectedProcedure = computed(() =>
   procedures.find((procedure) => procedure.key === selectedProcedureKey.value) ?? procedures[0],
 )
+const unitItems = computed<BroadbandUnit[]>(() => [
+  { id: 0, name: 'Tất cả đơn vị' },
+  ...units.value.filter((unit) => unit.id !== 0),
+])
+const selectedUnitName = computed(() =>
+  unitItems.value.find((unit) => unit.id === selectedUnitId.value)?.name ?? 'Tất cả đơn vị',
+)
 const selectedRows = computed(() => states[selectedProcedureKey.value].rows)
 const selectedHeaders = computed(() => headersFor(selectedRows.value))
 const filteredRows = computed(() => {
@@ -75,6 +90,72 @@ const filteredRows = computed(() => {
       normalizeSearch(row[key]).includes(normalizeSearch(query)),
     ),
   )
+})
+const knownDimensionTitles = new Set([
+  'Tên đơn vị địa bàn',
+  'Tên đơn vị phát triển',
+  'Tên khu vực',
+  'Mã nhân viên',
+  'Tên nhân viên',
+])
+const dimensionFields = computed(() => selectedHeaders.value
+  .filter((header) => header.align !== 'end' || knownDimensionTitles.has(header.title))
+  .map((header) => ({ key: header.key, title: header.title })))
+const numericFields = computed(() => selectedHeaders.value
+  .filter((header) => header.align === 'end' && !knownDimensionTitles.has(header.title))
+  .map((header) => ({ key: header.key, title: header.title })))
+const isAreaProcedure = computed(() =>
+  selectedProcedureKey.value === 'ptm-area' || selectedProcedureKey.value === 'cancel-area',
+)
+const groupingFields = computed(() => isAreaProcedure.value
+  ? dimensionFields.value.filter((field) => [
+      'Tên đơn vị địa bàn',
+      'Tên khu vực',
+      'Mã nhân viên',
+      'Tên nhân viên',
+    ].includes(field.title))
+  : dimensionFields.value.slice(0, 1))
+const categoryField = computed(() =>
+  groupingFields.value.find((field) => field.key === selectedGroupKey.value) ?? groupingFields.value[0],
+)
+const chartData = computed(() => {
+  if (!selectedMetricKey.value || !categoryField.value) return []
+  const metricKey = selectedMetricKey.value
+  const categoryKey = categoryField.value.key
+  const grouped = new Map<string, number>()
+
+  for (const row of filteredRows.value) {
+    const value = row[metricKey]
+    if (typeof value !== 'number' || !Number.isFinite(value)) continue
+    const category = String(row[categoryKey] ?? '').trim() || 'Chưa xác định'
+    grouped.set(category, (grouped.get(category) ?? 0) + value)
+  }
+
+  return [...grouped.entries()]
+    .map(([category, value]) => ({ category, value }))
+    .toSorted((left, right) => right.value - left.value)
+})
+const chartCategories = computed(() => chartData.value.map((item) => item.category))
+const chartValues = computed(() => chartData.value.map((item) => item.value))
+const selectedMetricTitle = computed(() =>
+  numericFields.value.find((field) => field.key === selectedMetricKey.value)?.title ?? '',
+)
+
+watch(numericFields, (fields) => {
+  if (!fields.some((field) => field.key === selectedMetricKey.value)) {
+    selectedMetricKey.value = fields.find((field) =>
+      normalizeSearch(field.title) === 'fiber',
+    )?.key ?? fields[0]?.key ?? null
+  }
+})
+watch(groupingFields, (fields) => {
+  if (!fields.some((field) => field.key === selectedGroupKey.value)) {
+    selectedGroupKey.value = (
+      isAreaProcedure.value
+        ? fields.find((field) => field.title === 'Tên khu vực')
+        : fields[0]
+    )?.key ?? null
+  }
 })
 
 const dateError = computed(() => {
@@ -103,7 +184,7 @@ function createFilter(): BroadbandFilter | null {
   return {
     fromDate: toDateKey(fromDate.value),
     toDate: toDateKey(toDate.value),
-    unitId: 0,
+    unitId: selectedUnitId.value,
     serviceId: 0,
     subscriberTypeId: 0,
     areaId: 0,
@@ -143,6 +224,20 @@ function normalizeSearch(value: unknown): string {
 
 function clearColumnFilter(key: string): void {
   columnFilters[selectedProcedureKey.value][key] = ''
+}
+
+function filterUnits(
+  value: string,
+  query: string,
+  item?: { raw?: unknown },
+): boolean {
+  const raw = item?.raw as BroadbandUnit | undefined
+  return normalizeSearch(`${value} ${raw?.id ?? ''}`).includes(normalizeSearch(query))
+}
+
+function clearUnitSelection(): void {
+  selectedUnitId.value = 0
+  unitSearch.value = ''
 }
 
 function isExistingTotal(row: Record<string, unknown>): boolean {
@@ -189,6 +284,19 @@ async function runSelected(key: BroadbandProcedureKey = selectedProcedureKey.val
   generalError.value = ''
   await runProcedure(procedure)
 }
+
+async function loadUnits(): Promise<void> {
+  unitsLoading.value = true
+  try {
+    units.value = await broadbandApi.units()
+  } catch (reason) {
+    generalError.value = getAuthErrorMessage(reason)
+  } finally {
+    unitsLoading.value = false
+  }
+}
+
+onMounted(loadUnits)
 </script>
 
 <template>
@@ -202,13 +310,33 @@ async function runSelected(key: BroadbandProcedureKey = selectedProcedureKey.val
     <v-card class="filter-card" elevation="0">
       <v-card-text>
         <v-row align="start">
-          <v-col cols="12" sm="6" lg="3">
+          <v-col cols="12" sm="6" lg="2">
             <v-date-input v-model="fromDate" label="Từ ngày" prepend-icon="" prepend-inner-icon="mdi-calendar-start-outline" variant="outlined" clearable :display-format="displayDate" :error-messages="dateError" />
           </v-col>
-          <v-col cols="12" sm="6" lg="3">
+          <v-col cols="12" sm="6" lg="2">
             <v-date-input v-model="toDate" label="Đến ngày" prepend-icon="" prepend-inner-icon="mdi-calendar-end-outline" variant="outlined" clearable :display-format="displayDate" :error-messages="dateError" />
           </v-col>
-          <v-col cols="12" md="8" lg="4">
+          <v-col cols="12" md="6" lg="3">
+            <v-autocomplete
+              v-model="selectedUnitId"
+              v-model:search="unitSearch"
+              :items="unitItems"
+              item-title="name"
+              item-value="id"
+              label="Đơn vị"
+              placeholder="Nhập tên hoặc mã đơn vị"
+              prepend-inner-icon="mdi-magnify"
+              variant="outlined"
+              :loading="unitsLoading"
+              :custom-filter="filterUnits"
+              no-data-text="Không tìm thấy đơn vị"
+              auto-select-first
+              clearable
+              hide-details
+              @click:clear="clearUnitSelection"
+            />
+          </v-col>
+          <v-col cols="12" md="6" lg="3">
             <v-select
               v-model="selectedProcedureKey"
               :items="procedures"
@@ -221,12 +349,12 @@ async function runSelected(key: BroadbandProcedureKey = selectedProcedureKey.val
               @update:model-value="runSelected"
             />
           </v-col>
-          <v-col cols="12" md="4" lg="2" class="filter-actions">
+          <v-col cols="12" lg="2" class="filter-actions">
             <v-btn color="primary" size="large" prepend-icon="mdi-database-search-outline" :loading="states[selectedProcedureKey].loading" :disabled="!!dateError" @click="runSelected()">Lấy dữ liệu</v-btn>
           </v-col>
         </v-row>
         <v-alert type="info" variant="tonal" density="compact" icon="mdi-filter-outline">
-          Các tham số đơn vị, khu vực, dịch vụ và loại thuê bao đang được bind bằng <strong>0</strong> để lấy toàn bộ dữ liệu.
+          Đơn vị đang chọn: <strong>{{ selectedUnitName }}</strong>. Khu vực, dịch vụ và loại thuê bao đang được bind bằng <strong>0</strong> để lấy toàn bộ dữ liệu.
         </v-alert>
       </v-card-text>
     </v-card>
@@ -302,6 +430,87 @@ async function runSelected(key: BroadbandProcedureKey = selectedProcedureKey.val
           </template>
         </v-data-table>
       </v-card>
+
+      <section v-if="numericFields.length" class="chart-section">
+        <v-card class="metric-card" elevation="0">
+          <v-card-text>
+            <div class="metric-card__title">
+              <div>
+                <strong>Chỉ tiêu hiển thị trên biểu đồ</strong>
+                <span>Chọn một trường số liệu để so sánh giữa các đơn vị.</span>
+              </div>
+              <v-chip class="active-metric-chip" color="primary" variant="tonal" prepend-icon="mdi-chart-bar">{{ selectedMetricTitle }}</v-chip>
+            </div>
+            <v-chip-group v-model="selectedMetricKey" class="metric-chip-group" mandatory selected-class="selector-chip--active">
+              <v-chip
+                v-for="field in numericFields"
+                :key="field.key"
+                :value="field.key"
+                class="selector-chip metric-chip"
+                color="primary"
+                filter
+                variant="outlined"
+              >{{ field.title }}</v-chip>
+            </v-chip-group>
+            <template v-if="isAreaProcedure && groupingFields.length">
+              <v-divider class="my-4" />
+              <div class="grouping-selector">
+                <div>
+                  <strong>Gom dữ liệu theo</strong>
+                  <span>Cộng dồn chỉ tiêu trước khi vẽ biểu đồ.</span>
+                </div>
+                <v-chip-group v-model="selectedGroupKey" class="grouping-chip-group" mandatory selected-class="selector-chip--active">
+                  <v-chip
+                    v-for="field in groupingFields"
+                    :key="field.key"
+                    :value="field.key"
+                    class="selector-chip grouping-chip"
+                    color="primary"
+                    filter
+                    variant="outlined"
+                  >{{ field.title }}</v-chip>
+                </v-chip-group>
+              </div>
+            </template>
+          </v-card-text>
+        </v-card>
+
+        <v-row v-if="chartData.length" class="chart-grid">
+          <v-col cols="12" xl="6">
+            <v-card class="chart-card" elevation="0">
+              <v-card-title>
+                <div><strong>Biểu đồ cột</strong><span>{{ selectedMetricTitle }} theo {{ categoryField?.title }}</span></div>
+              </v-card-title>
+              <v-card-text>
+                <ComparisonBarChart
+                  :categories="chartCategories"
+                  :values="chartValues"
+                  :series-name="selectedMetricTitle"
+                  orientation="vertical"
+                  :loading="states[selectedProcedure.key].loading"
+                />
+              </v-card-text>
+            </v-card>
+          </v-col>
+          <v-col cols="12" xl="6">
+            <v-card class="chart-card" elevation="0">
+              <v-card-title>
+                <div><strong>Biểu đồ thanh</strong><span>So sánh {{ selectedMetricTitle }} giữa các đơn vị</span></div>
+              </v-card-title>
+              <v-card-text>
+                <ComparisonBarChart
+                  :categories="chartCategories"
+                  :values="chartValues"
+                  :series-name="selectedMetricTitle"
+                  orientation="horizontal"
+                  :loading="states[selectedProcedure.key].loading"
+                />
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+        <v-empty-state v-else icon="mdi-chart-bar-off" title="Chưa có dữ liệu biểu đồ" text="Chỉ tiêu đang chọn không có dữ liệu số để so sánh." />
+      </section>
     </section>
   </v-container>
 </template>
@@ -314,8 +523,8 @@ async function runSelected(key: BroadbandProcedureKey = selectedProcedureKey.val
 .procedure-table { --table-row-even: rgba(var(--v-theme-primary),.022); --table-row-hover: rgba(var(--v-theme-primary),.065); }
 .procedure-table :deep(.v-table__wrapper) { scrollbar-color: rgba(var(--v-theme-primary),.35) transparent; scrollbar-width: thin; }
 .procedure-table :deep(.v-data-table__thead) { position: sticky; top: 0; z-index: 4; }
-.procedure-table :deep(.v-data-table__th) { position: sticky!important; top: 0!important; z-index: 4!important; height: 88px!important; min-width: 138px; padding: 10px 12px!important; color: rgb(var(--v-theme-primary))!important; background: color-mix(in srgb,rgb(var(--v-theme-primary)) 8%,rgb(var(--v-theme-surface)))!important; box-shadow: inset 0 -1px 0 rgba(var(--v-theme-primary),.16); font-size: 11px!important; font-weight: 700!important; letter-spacing: .15px; white-space: nowrap; vertical-align: top; }
-.column-heading { display: grid; gap: 7px; min-width: 114px; }.column-heading > span { overflow: hidden; display: block; min-height: 18px; text-overflow: ellipsis; }.column-search { min-width: 114px; }.column-search :deep(.v-field) { min-height: 34px; color: rgba(var(--v-theme-on-surface),.8); background: rgb(var(--v-theme-surface)); font-size: 12px; font-weight: 400; }.column-search :deep(.v-field__input) { min-height: 34px; padding-block: 5px; }.column-search :deep(.v-field__prepend-inner) { padding-top: 7px; }.column-search :deep(.v-icon) { font-size: 17px; }
+.procedure-table :deep(.v-data-table__th) { position: sticky!important; top: 0!important; z-index: 4!important; height: 98px!important; min-width: 150px; padding: 12px 14px!important; color: rgb(var(--v-theme-primary))!important; background: color-mix(in srgb,rgb(var(--v-theme-primary)) 8%,rgb(var(--v-theme-surface)))!important; box-shadow: inset 0 -1px 0 rgba(var(--v-theme-primary),.16); font-size: 13px!important; font-weight: 700!important; letter-spacing: .15px; white-space: nowrap; vertical-align: top; }
+.column-heading { display: grid; gap: 9px; min-width: 124px; }.column-heading > span { overflow: hidden; display: block; min-height: 20px; text-overflow: ellipsis; }.column-search { min-width: 124px; }.column-search :deep(.v-field) { min-height: 38px; color: rgba(var(--v-theme-on-surface),.8); background: rgb(var(--v-theme-surface)); font-size: 13px; font-weight: 400; }.column-search :deep(.v-field__input) { min-height: 38px; padding-block: 6px; }.column-search :deep(.v-field__prepend-inner) { padding-top: 9px; }.column-search :deep(.v-icon) { font-size: 18px; }
 .procedure-table :deep(tbody tr) { background: rgb(var(--v-theme-surface)); transition: background-color .15s ease; }
 .procedure-table :deep(tbody tr:nth-child(even)) { background: var(--table-row-even); }
 .procedure-table :deep(tbody tr:hover) { background: var(--table-row-hover)!important; }
@@ -326,5 +535,6 @@ async function runSelected(key: BroadbandProcedureKey = selectedProcedureKey.val
 .procedure-table :deep(.v-data-table-footer__info) { color: rgba(var(--v-theme-on-surface),.65); font-size: 12px; }
 .procedure-table :deep(.total-row) { color: rgb(var(--v-theme-primary)); background: color-mix(in srgb,rgb(var(--v-theme-primary)) 11%,rgb(var(--v-theme-surface)))!important; font-weight: 700; }
 .procedure-table :deep(.calculated-total-row td) { border-top: 0!important; border-bottom: 1px solid rgba(var(--v-theme-primary),.2)!important; background: color-mix(in srgb,rgb(var(--v-theme-primary)) 11%,rgb(var(--v-theme-surface)))!important; }
-@media(max-width:700px){.broadband-page{width:min(100% - 24px,1500px)}.filter-actions{justify-content:stretch;padding-top:0}.filter-actions .v-btn{width:100%}.procedure-card__head{align-items:flex-start;flex-direction:column}.procedure-card__status{width:100%;justify-content:space-between}}
+.chart-section { display: grid; gap: 16px; margin-top: 2px; }.metric-card,.chart-card { overflow: hidden; border: 0; border-radius: 10px; background: rgb(var(--v-theme-surface)); box-shadow: 0 4px 18px rgba(29,61,83,.09)!important; }.metric-card__title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }.metric-card__title strong,.metric-card__title span,.grouping-selector strong,.grouping-selector span { display: block; }.metric-card__title strong,.grouping-selector strong { color: rgb(var(--v-theme-on-surface)); font-size: 16px; }.metric-card__title span,.grouping-selector span { margin-top: 4px; color: rgba(var(--v-theme-on-surface),.58); font-size: 12px; }.grouping-selector { display: grid; grid-template-columns: minmax(190px,auto) 1fr; align-items: center; gap: 18px; }.active-metric-chip { display: inline-flex!important; align-items: center; justify-content: center; min-width: 92px; height: 38px!important; padding-inline: 13px!important; border: 1px solid rgba(var(--v-theme-primary),.14); border-radius: 10px!important; font-size: 12px; font-weight: 600; white-space: nowrap; }.active-metric-chip :deep(.v-chip__content),.selector-chip :deep(.v-chip__content) { display: inline-flex; align-items: center; justify-content: center; width: auto; line-height: 1; white-space: nowrap; }.active-metric-chip :deep(.v-chip__prepend),.selector-chip :deep(.v-chip__filter) { display: inline-flex; align-items: center; justify-content: center; align-self: center; margin-inline-end: 6px; }.metric-chip-group :deep(.v-slide-group__content),.grouping-chip-group :deep(.v-slide-group__content) { display: flex; flex-wrap: wrap; gap: 9px; padding-block: 2px; }.selector-chip { display: inline-flex!important; align-items: center; justify-content: center; height: 38px!important; margin: 0!important; padding-inline: 14px!important; border-color: rgba(var(--v-theme-on-surface),.22)!important; border-radius: 10px!important; color: rgba(var(--v-theme-on-surface),.72)!important; background: rgba(var(--v-theme-surface),.75)!important; font-size: 12px; font-weight: 500; white-space: nowrap; transition: border-color .16s ease,background-color .16s ease,box-shadow .16s ease; }.selector-chip:hover { border-color: rgba(var(--v-theme-primary),.48)!important; color: rgb(var(--v-theme-primary))!important; background: rgba(var(--v-theme-primary),.035)!important; box-shadow: 0 3px 9px rgba(var(--v-theme-primary),.1); }.metric-chip { min-width: 88px; }.grouping-chip { min-width: 142px; }.selector-chip--active { border-color: rgb(var(--v-theme-primary))!important; color: rgb(var(--v-theme-primary))!important; background: rgba(var(--v-theme-primary),.1)!important; box-shadow: 0 3px 9px rgba(var(--v-theme-primary),.14); font-weight: 600; }.selector-chip--active :deep(.v-chip__filter) { opacity: 1; }.chart-grid { margin-top: -4px; }.chart-card > .v-card-title { padding: 18px 20px 10px; }.chart-card > .v-card-title strong,.chart-card > .v-card-title span { display: block; }.chart-card > .v-card-title strong { font-size: 16px; }.chart-card > .v-card-title span { margin-top: 4px; color: rgba(var(--v-theme-on-surface),.55); font-size: 11px; font-weight: 400; }.chart-card > .v-card-text { padding: 0 12px 12px; }
+@media(max-width:700px){.broadband-page{width:min(100% - 24px,1500px)}.filter-actions{justify-content:stretch;padding-top:0}.filter-actions .v-btn{width:100%}.procedure-card__head,.metric-card__title{align-items:flex-start;flex-direction:column}.procedure-card__status{width:100%;justify-content:space-between}.grouping-selector{grid-template-columns:1fr}.active-metric-chip{align-self:flex-start}}
 </style>

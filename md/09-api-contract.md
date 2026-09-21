@@ -15,6 +15,7 @@ Tất cả response thành công được bọc theo `{ success, data, meta }`. 
 | `GET/POST` | `/admin/reports` | Session + quyền quản trị | Danh sách hoặc thêm báo cáo |
 | `PATCH/DELETE` | `/admin/reports/:id` | Session + quyền quản trị | Sửa hoặc xóa báo cáo |
 | `GET` | `/broadband/procedures` | Session | Danh sách 7 báo cáo được phép gọi trong `NBH_CDS_NEW.PACK_BR` |
+| `GET` | `/broadband/units` | Session | Danh mục `DONVI_ID`, `TEN_DV` từ bảng `DON_VI` |
 | `POST` | `/broadband/procedures/:key` | Session | Gọi một procedure báo cáo bằng khóa allowlist và bind variables |
 
 ## Báo cáo băng rộng

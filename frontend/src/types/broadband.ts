@@ -22,3 +22,8 @@ export interface BroadbandProcedureResult {
   title: string
   rows: Array<Record<string, unknown>>
 }
+
+export interface BroadbandUnit {
+  id: number
+  name: string
+}

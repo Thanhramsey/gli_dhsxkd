@@ -3,6 +3,20 @@ import type { OracleService } from '../../database/oracle.service.js';
 import { BroadbandService } from './broadband.service.js';
 
 describe('BroadbandService', () => {
+  it('loads unit options from DON_VI', async () => {
+    const executeQuery = vi.fn().mockResolvedValue([
+      { DONVI_ID: 12, TEN_DV: 'Viễn thông An Khê' },
+    ]);
+    const service = new BroadbandService({
+      executeQuery,
+    } as unknown as OracleService);
+
+    await expect(service.units()).resolves.toEqual([
+      { id: 12, name: 'Viễn thông An Khê' },
+    ]);
+    expect(executeQuery).toHaveBeenCalledWith(expect.stringContaining('FROM DON_VI'));
+  });
+
   it('uses an allowlisted procedure and typed bind variables', async () => {
     const executeProcedure = vi.fn().mockResolvedValue({
       outBinds: { P_CURSOR: [{ 'Tên đơn vị phát triển': 'TỔNG', Fiber: 12 }] },
