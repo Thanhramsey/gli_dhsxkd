@@ -63,7 +63,7 @@ export class OracleService implements OnModuleInit, OnApplicationShutdown {
 			throw new ServiceUnavailableException('Database is not available');
 		}
 
-		this.assertIdentifier(packageName);
+		this.assertQualifiedIdentifier(packageName);
 		this.assertIdentifier(procedureName);
 
 		const parameterNames = Object.keys(binds);
@@ -186,6 +186,14 @@ export class OracleService implements OnModuleInit, OnApplicationShutdown {
 		if (!ORACLE_IDENTIFIER_PATTERN.test(identifier)) {
 			throw new TypeError(`Invalid Oracle identifier: ${identifier}`);
 		}
+	}
+
+	private assertQualifiedIdentifier(identifier: string): void {
+		const parts = identifier.split('.');
+		if (parts.length < 1 || parts.length > 2) {
+			throw new TypeError(`Invalid Oracle qualified identifier: ${identifier}`);
+		}
+		parts.forEach((part) => this.assertIdentifier(part));
 	}
 
 	private async materializeOutBinds(

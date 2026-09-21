@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import type { MenuItem } from '../../types/auth'
+import { hasMenuTarget, resolveMenuPath } from '../../utils/menu-path'
 
 defineProps<{ item: MenuItem }>()
 
 function targetPath(item: MenuItem) {
-  return item.path || item.redirect || '/'
+  return resolveMenuPath(item) || '/'
 }
 
 function menuIcon(item: MenuItem) {
@@ -21,7 +22,7 @@ function menuIcon(item: MenuItem) {
     <MenuTreeItem v-for="child in item.children" :key="child.id" :item="child" />
   </v-list-group>
   <v-list-item
-    v-else-if="item.isHeading && !item.path"
+    v-else-if="item.isHeading && !hasMenuTarget(item)"
     :title="item.title"
     :prepend-icon="menuIcon(item)"
     rounded="lg"

@@ -14,6 +14,25 @@ Tất cả response thành công được bọc theo `{ success, data, meta }`. 
 | `PATCH/DELETE` | `/admin/report-groups/:id` | Session + quyền quản trị | Sửa hoặc xóa nhóm báo cáo |
 | `GET/POST` | `/admin/reports` | Session + quyền quản trị | Danh sách hoặc thêm báo cáo |
 | `PATCH/DELETE` | `/admin/reports/:id` | Session + quyền quản trị | Sửa hoặc xóa báo cáo |
+| `GET` | `/broadband/procedures` | Session | Danh sách 7 báo cáo được phép gọi trong `NBH_CDS_NEW.PACK_BR` |
+| `POST` | `/broadband/procedures/:key` | Session | Gọi một procedure báo cáo bằng khóa allowlist và bind variables |
+
+## Báo cáo băng rộng
+
+Body của `POST /broadband/procedures/:key`:
+
+```json
+{
+  "fromDate": "2026-09-01",
+  "toDate": "2026-09-21",
+  "unitId": 0,
+  "serviceId": 0,
+  "subscriberTypeId": 0,
+  "areaId": 0
+}
+```
+
+`fromDate` và `toDate` dùng định dạng `YYYY-MM-DD`. Giá trị `0` ở các bộ lọc nghĩa là lấy tất cả theo quy ước của package. Frontend không được gửi tên package hoặc procedure tùy ý; `:key` chỉ nhận một trong các khóa do backend khai báo. Tên package/procedure được chọn từ allowlist phía server, còn toàn bộ giá trị đầu vào được truyền bằng typed bind variables.
 
 Response người dùng giữ `groupId`, `groupName` và `groupIds` để tương thích giao diện hiện có. Do `LEVEL_ROLE` là một giá trị đơn, `groupIds` chỉ rỗng hoặc chứa đúng một phần tử.
 

@@ -39,6 +39,12 @@ export const router = createRouter({
       component: () => import('../views/SystemStatusView.vue'),
     },
     {
+      path: '/broadband',
+      alias: ['/bang-rong', '/bcpt-bang-rong', '/he-thong-dl-giao-ban'],
+      name: 'broadband',
+      component: () => import('../views/BroadbandView.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'module-placeholder',
       component: () => import('../views/ModulePlaceholderView.vue'),

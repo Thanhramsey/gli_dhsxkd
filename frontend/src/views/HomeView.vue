@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useAuthStore } from '../stores/auth.store'
+import { resolveMenuPath } from '../utils/menu-path'
 
 const auth = useAuthStore()
 const employee = computed(() => auth.user?.employee)
@@ -53,7 +54,7 @@ const formattedDate = new Intl.DateTimeFormat('vi-VN', {
           <v-chip size="small" color="primary" variant="tonal">{{ auth.menus.length }} menu</v-chip>
         </header>
         <v-list v-if="visibleMenus.length" class="quick-grid" lines="two">
-          <v-list-item v-for="menu in visibleMenus" :key="menu.id" :to="menu.path || menu.redirect || '/'" class="quick-item" :title="menu.title" :subtitle="menu.code || menu.name" prepend-icon="mdi-view-grid-outline" append-icon="mdi-chevron-right" />
+          <v-list-item v-for="menu in visibleMenus" :key="menu.id" :to="resolveMenuPath(menu) || '/'" class="quick-item" :title="menu.title" :subtitle="menu.code || menu.name" prepend-icon="mdi-view-grid-outline" append-icon="mdi-chevron-right" />
         </v-list>
         <div v-else class="empty-menu">
           <v-icon icon="mdi-view-grid-off-outline" size="34" color="info" /><strong>Chưa có menu được cấp</strong><p>Vui lòng liên hệ quản trị viên để được phân quyền.</p>

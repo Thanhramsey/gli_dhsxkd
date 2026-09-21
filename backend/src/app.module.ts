@@ -11,6 +11,7 @@ import { validateEnvironment } from './config/environment.validation.js';
 import { OracleModule } from './database/oracle.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
+import { BroadbandModule } from './modules/broadband/broadband.module.js';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { AdminModule } from './modules/admin/admin.module.js';
     OracleModule,
     AuthModule,
     AdminModule,
+    BroadbandModule,
   ],
   controllers: [AppController],
   providers: [

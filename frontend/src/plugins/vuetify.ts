@@ -3,10 +3,28 @@ import '@mdi/font/css/materialdesignicons.css'
 import { createVuetify } from 'vuetify'
 import * as components from 'vuetify/components'
 import * as directives from 'vuetify/directives'
+import { VDateInput } from 'vuetify/labs/VDateInput'
+import { vi } from 'vuetify/locale'
+
+const viMessages = {
+  ...vi,
+  dataFooter: {
+    ...vi.dataFooter,
+    itemsPerPageText: 'Số dòng mỗi trang:',
+  },
+}
 
 export const vuetify = createVuetify({
-  components,
+  components: { ...components, VDateInput },
   directives,
+  locale: {
+    locale: 'vi',
+    fallback: 'vi',
+    messages: { vi: viMessages },
+  },
+  date: {
+    locale: { vi: 'vi-VN' },
+  },
   theme: {
     defaultTheme: 'dashboardTheme',
     themes: {
