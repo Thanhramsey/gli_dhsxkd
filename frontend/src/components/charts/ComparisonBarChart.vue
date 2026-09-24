@@ -5,8 +5,7 @@ import '../../plugins/echarts'
 
 const props = defineProps<{
   categories: string[]
-  values: number[]
-  seriesName: string
+  series: Array<{ name: string; data: number[]; color: string }>
   orientation: 'vertical' | 'horizontal'
   loading?: boolean
 }>()
@@ -74,12 +73,19 @@ const option = computed(() => {
     splitLine: { lineStyle: { color: '#eaf0f4', type: 'dashed' as const } },
   }
   const vertical = props.orientation === 'vertical'
+  const hasMultipleSeries = props.series.length > 1
 
   return {
+    color: props.series.map((metric) => metric.color),
     animationDuration: 450,
     grid: vertical
-      ? { left: 64, right: 24, top: 28, bottom: props.categories.length > 8 ? 112 : 70, containLabel: false }
-      : { left: 235, right: 74, top: 24, bottom: 48, containLabel: false },
+      ? { left: 64, right: 24, top: hasMultipleSeries ? 58 : 28, bottom: props.categories.length > 8 ? 112 : 70, containLabel: false }
+      : { left: 235, right: 74, top: hasMultipleSeries ? 58 : 24, bottom: 48, containLabel: false },
+    legend: hasMultipleSeries ? {
+      top: 2,
+      type: 'scroll',
+      textStyle: { color: '#526a7b', fontFamily: 'Be Vietnam Pro', fontSize: 11 },
+    } : undefined,
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
@@ -132,32 +138,35 @@ const option = computed(() => {
               selectedDataBackground: { lineStyle: { opacity: 0 }, areaStyle: { opacity: 0 } },
             },
           ],
-    series: [{
-      name: props.seriesName,
+    series: props.series.map((metric) => ({
+      name: metric.name,
       type: 'bar',
-      data: props.values.map((value, index) => ({
+      color: metric.color,
+      data: metric.data.map((value, index) => ({
         value,
-        itemStyle: { color: rankColor(index, props.values.length) },
+        itemStyle: { color: hasMultipleSeries
+          ? metric.color
+          : rankColor(index, metric.data.length) },
       })),
-      barMaxWidth: 34,
+      barMaxWidth: hasMultipleSeries ? 22 : 34,
       itemStyle: {
         borderRadius: vertical ? [5, 5, 0, 0] : [0, 5, 5, 0],
       },
       emphasis: { itemStyle: { opacity: .82 } },
       label: {
-        show: props.categories.length <= 15,
+        show: !hasMultipleSeries && props.categories.length <= 15,
         position: vertical ? 'top' : 'right',
         color: '#425b6d',
         fontSize: 10,
         formatter: ({ value }: { value: number }) => numberFormatter.format(value),
       },
-    }],
+    })),
   }
 })
 </script>
 
 <template>
-  <v-chart class="comparison-chart" :option="option" :loading="loading" autoresize />
+  <v-chart class="comparison-chart" :option="option" :update-options="{ replaceMerge: ['series'] }" :loading="loading" autoresize />
 </template>
 
 <style scoped>

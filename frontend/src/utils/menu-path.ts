@@ -6,7 +6,8 @@ const builtInMenuPaths: Readonly<Record<string, string>> = {
 }
 
 export function resolveMenuPath(item: MenuItem): string | null {
-  return item.path || item.redirect || builtInMenuPaths[item.code] || null
+  const menuName = (item.name || item.title).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim()
+  return item.path || item.redirect || builtInMenuPaths[item.code] || (menuName === 'bcpt cntt' ? '/bcpt-cntt' : null)
 }
 
 export function hasMenuTarget(item: MenuItem): boolean {

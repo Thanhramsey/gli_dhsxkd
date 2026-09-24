@@ -45,6 +45,12 @@ export const router = createRouter({
       component: () => import('../views/BroadbandView.vue'),
     },
     {
+      path: '/bcpt-cntt',
+      alias: ['/cntt'],
+      name: 'bcpt-cntt',
+      component: () => import('../views/CnttView.vue'),
+    },
+    {
       path: '/:pathMatch(.*)*',
       name: 'module-placeholder',
       component: () => import('../views/ModulePlaceholderView.vue'),

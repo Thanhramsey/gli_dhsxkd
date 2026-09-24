@@ -3,6 +3,8 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { broadbandApi } from '../api/broadband.api'
 import { getAuthErrorMessage } from '../api/auth.api'
 import ComparisonBarChart from '../components/charts/ComparisonBarChart.vue'
+import ServiceCompositionChart from '../components/charts/ServiceCompositionChart.vue'
+import { chartMetricColor } from '../constants/chart-metric-colors'
 import type {
   BroadbandFilter,
   BroadbandProcedureKey,
@@ -38,7 +40,7 @@ const fromDate = ref<Date | null>(new Date(today.getFullYear(), today.getMonth()
 const toDate = ref<Date | null>(today)
 const selectedProcedureKey = ref<BroadbandProcedureKey>('ptm-employee')
 const selectedUnitId = ref(0)
-const selectedMetricKey = ref<string | null>(null)
+const selectedMetricKeys = ref<string[]>([])
 const selectedGroupKey = ref<string | null>(null)
 const unitSearch = ref('')
 const units = ref<BroadbandUnit[]>([])
@@ -107,6 +109,9 @@ const numericFields = computed(() => selectedHeaders.value
 const isAreaProcedure = computed(() =>
   selectedProcedureKey.value === 'ptm-area' || selectedProcedureKey.value === 'cancel-area',
 )
+const isXgsponProcedure = computed(() =>
+  selectedProcedureKey.value === 'xgspon-location' || selectedProcedureKey.value === 'xgspon-employee',
+)
 const groupingFields = computed(() => isAreaProcedure.value
   ? dimensionFields.value.filter((field) => [
       'Tên đơn vị địa bàn',
@@ -118,36 +123,84 @@ const groupingFields = computed(() => isAreaProcedure.value
 const categoryField = computed(() =>
   groupingFields.value.find((field) => field.key === selectedGroupKey.value) ?? groupingFields.value[0],
 )
+const selectedMetrics = computed(() => numericFields.value.filter((field) =>
+  selectedMetricKeys.value.includes(field.key),
+))
+const allMetricsSelected = computed(() =>
+  numericFields.value.length > 0 && selectedMetrics.value.length === numericFields.value.length,
+)
 const chartData = computed(() => {
-  if (!selectedMetricKey.value || !categoryField.value) return []
-  const metricKey = selectedMetricKey.value
+  if (!selectedMetrics.value.length || !categoryField.value) return []
   const categoryKey = categoryField.value.key
-  const grouped = new Map<string, number>()
+  const grouped = new Map<string, Record<string, number>>()
 
   for (const row of filteredRows.value) {
-    const value = row[metricKey]
-    if (typeof value !== 'number' || !Number.isFinite(value)) continue
     const category = String(row[categoryKey] ?? '').trim() || 'Chưa xác định'
-    grouped.set(category, (grouped.get(category) ?? 0) + value)
+    const totals = grouped.get(category) ?? {}
+    for (const metric of selectedMetrics.value) {
+      const value = row[metric.key]
+      if (typeof value === 'number' && Number.isFinite(value)) {
+        totals[metric.key] = (totals[metric.key] ?? 0) + value
+      }
+    }
+    grouped.set(category, totals)
   }
 
   return [...grouped.entries()]
-    .map(([category, value]) => ({ category, value }))
-    .toSorted((left, right) => right.value - left.value)
+    .map(([category, totals]) => ({ category, totals }))
+    .sort((left, right) =>
+      selectedMetrics.value.reduce((sum, metric) => sum + (right.totals[metric.key] ?? 0), 0) -
+      selectedMetrics.value.reduce((sum, metric) => sum + (left.totals[metric.key] ?? 0), 0),
+    )
 })
 const chartCategories = computed(() => chartData.value.map((item) => item.category))
-const chartValues = computed(() => chartData.value.map((item) => item.value))
-const selectedMetricTitle = computed(() =>
-  numericFields.value.find((field) => field.key === selectedMetricKey.value)?.title ?? '',
+const chartSeries = computed(() => selectedMetrics.value.map((metric) => ({
+  name: metric.title,
+  data: chartData.value.map((item) => item.totals[metric.key] ?? 0),
+  color: chartMetricColor(numericFields.value.findIndex((field) => field.key === metric.key)),
+})))
+const selectedMetricSummary = computed(() =>
+  allMetricsSelected.value
+    ? 'Tất cả chỉ tiêu'
+    : selectedMetrics.value.length === 1
+      ? selectedMetrics.value[0]!.title
+      : `${selectedMetrics.value.length} chỉ tiêu`,
 )
+const serviceMetricTotals = computed(() => numericFields.value
+  .map((field, index) => ({
+    name: field.title,
+    color: chartMetricColor(index),
+    value: filteredRows.value.reduce((sum, row) => {
+      const value = row[field.key]
+      return sum + (typeof value === 'number' && Number.isFinite(value) ? value : 0)
+    }, 0),
+  })))
+const serviceCompositionItems = computed(() => serviceMetricTotals.value
+  .filter((item) => !(
+    isXgsponProcedure.value && normalizeSearch(item.name) === 'tong xgspon'
+  ))
+  .filter((item) => item.value > 0))
+const serviceCompositionTotal = computed(() => {
+  if (isXgsponProcedure.value) {
+    const declaredTotal = serviceMetricTotals.value.find((item) =>
+      normalizeSearch(item.name) === 'tong xgspon',
+    )?.value
+    if (declaredTotal !== undefined) return declaredTotal
+  }
+  return serviceCompositionItems.value.reduce((sum, item) => sum + item.value, 0)
+})
 
 watch(numericFields, (fields) => {
-  if (!fields.some((field) => field.key === selectedMetricKey.value)) {
-    selectedMetricKey.value = fields.find((field) =>
+  const availableKeys = new Set(fields.map((field) => field.key))
+  const validKeys = selectedMetricKeys.value.filter((key) => availableKeys.has(key))
+  if (validKeys.length !== selectedMetricKeys.value.length) selectedMetricKeys.value = validKeys
+  if (!validKeys.length && fields.length) {
+    selectedMetricKeys.value = [fields.find((field) =>
       normalizeSearch(field.title) === 'fiber',
-    )?.key ?? fields[0]?.key ?? null
+    )?.key ?? fields[0]!.key]
   }
 })
+watch(selectedProcedureKey, () => { selectedMetricKeys.value = [] }, { flush: 'sync' })
 watch(groupingFields, (fields) => {
   if (!fields.some((field) => field.key === selectedGroupKey.value)) {
     selectedGroupKey.value = (
@@ -224,6 +277,18 @@ function normalizeSearch(value: unknown): string {
 
 function clearColumnFilter(key: string): void {
   columnFilters[selectedProcedureKey.value][key] = ''
+}
+
+function toggleAllMetrics(): void {
+  selectedMetricKeys.value = allMetricsSelected.value
+    ? [numericFields.value.find((field) => normalizeSearch(field.title) === 'fiber')?.key ?? numericFields.value[0]!.key]
+    : numericFields.value.map((field) => field.key)
+}
+
+function metricSwatch(index: number, key: string): string {
+  return selectedMetrics.value.length === 1 && selectedMetricKeys.value.includes(key)
+    ? 'linear-gradient(90deg, #169b72, #078bc8, #f2b134, #df4d4d)'
+    : chartMetricColor(index)
 }
 
 function filterUnits(
@@ -354,7 +419,7 @@ onMounted(loadUnits)
           </v-col>
         </v-row>
         <v-alert type="info" variant="tonal" density="compact" icon="mdi-filter-outline">
-          Đơn vị đang chọn: <strong>{{ selectedUnitName }}</strong>. Khu vực, dịch vụ và loại thuê bao đang được bind bằng <strong>0</strong> để lấy toàn bộ dữ liệu.
+          Đơn vị đang chọn: <strong>{{ selectedUnitName }}</strong>.
         </v-alert>
       </v-card-text>
     </v-card>
@@ -362,6 +427,117 @@ onMounted(loadUnits)
     <v-alert v-if="generalError" class="mt-4" type="error" variant="tonal" closable @click:close="generalError = ''">{{ generalError }}</v-alert>
 
     <section class="procedure-list">
+      <section v-if="numericFields.length" class="chart-section">
+        <v-card class="metric-card" elevation="0">
+          <v-card-text>
+            <div class="metric-card__title">
+              <div>
+                <strong>Chỉ tiêu hiển thị trên biểu đồ</strong>
+                <span>Báo cáo: {{ selectedProcedure.title }} · Chọn một hoặc nhiều trường số liệu để so sánh.</span>
+              </div>
+              <v-chip class="active-metric-chip" color="primary" variant="tonal" prepend-icon="mdi-chart-bar">{{ selectedMetricSummary }}</v-chip>
+            </div>
+            <div class="metric-choices">
+              <v-chip
+                class="selector-chip metric-chip select-all-chip"
+                :class="{ 'selector-chip--active': allMetricsSelected }"
+                color="primary"
+                variant="outlined"
+                :prepend-icon="allMetricsSelected ? 'mdi-check-all' : 'mdi-select-all'"
+                @click="toggleAllMetrics"
+              >Chọn tất cả</v-chip>
+              <v-chip-group v-model="selectedMetricKeys" class="metric-chip-group" multiple mandatory selected-class="selector-chip--active">
+              <v-chip
+                v-for="(field, index) in numericFields"
+                :key="field.key"
+                :value="field.key"
+                class="selector-chip metric-chip"
+                color="primary"
+                variant="outlined"
+              >
+                <span
+                  class="metric-color-dot"
+                  :style="{ background: metricSwatch(index, field.key) }"
+                  aria-hidden="true"
+                />
+                {{ field.title }}
+              </v-chip>
+              </v-chip-group>
+            </div>
+            <template v-if="isAreaProcedure && groupingFields.length">
+              <v-divider class="my-4" />
+              <div class="grouping-selector">
+                <div>
+                  <strong>Gom dữ liệu theo</strong>
+                  <span>Cộng dồn chỉ tiêu trước khi vẽ biểu đồ.</span>
+                </div>
+                <v-chip-group v-model="selectedGroupKey" class="grouping-chip-group" mandatory selected-class="selector-chip--active">
+                  <v-chip
+                    v-for="field in groupingFields"
+                    :key="field.key"
+                    :value="field.key"
+                    class="selector-chip grouping-chip"
+                    color="primary"
+                    filter
+                    variant="outlined"
+                  >{{ field.title }}</v-chip>
+                </v-chip-group>
+              </div>
+            </template>
+          </v-card-text>
+        </v-card>
+
+        <v-row v-if="chartData.length" class="chart-grid">
+          <v-col cols="12">
+            <v-card class="chart-card" elevation="0">
+              <v-card-title>
+                <div><strong>Biểu đồ cột · {{ selectedProcedure.title }}</strong><span>{{ selectedMetricSummary }} theo {{ categoryField?.title }}</span></div>
+              </v-card-title>
+              <v-card-text>
+                <ComparisonBarChart
+                  :categories="chartCategories"
+                  :series="chartSeries"
+                  orientation="vertical"
+                  :loading="states[selectedProcedure.key].loading"
+                />
+              </v-card-text>
+            </v-card>
+          </v-col>
+          <v-col cols="12" lg="6">
+            <v-card class="chart-card" elevation="0">
+              <v-card-title>
+                <div><strong>Biểu đồ thanh · {{ selectedProcedure.title }}</strong><span>So sánh {{ selectedMetricSummary }} theo {{ categoryField?.title }}</span></div>
+              </v-card-title>
+              <v-card-text>
+                <ComparisonBarChart
+                  :categories="chartCategories"
+                  :series="chartSeries"
+                  orientation="horizontal"
+                  :loading="states[selectedProcedure.key].loading"
+                />
+              </v-card-text>
+            </v-card>
+          </v-col>
+          <v-col v-if="serviceCompositionItems.length" cols="12" lg="6">
+            <v-card class="chart-card" elevation="0">
+              <v-card-title>
+                <div>
+                  <strong>Cơ cấu dịch vụ · {{ selectedProcedure.title }}</strong>
+                  <span>Tỷ trọng từng dịch vụ trên tổng {{ displayValue(serviceCompositionTotal) }}</span>
+                </div>
+              </v-card-title>
+              <v-card-text>
+                <ServiceCompositionChart
+                  :items="serviceCompositionItems"
+                  :loading="states[selectedProcedure.key].loading"
+                />
+              </v-card-text>
+            </v-card>
+          </v-col>
+        </v-row>
+        <v-empty-state v-else icon="mdi-chart-bar-off" title="Chưa có dữ liệu biểu đồ" text="Chỉ tiêu đang chọn không có dữ liệu số để so sánh." />
+      </section>
+
       <v-card :key="selectedProcedure.key" class="procedure-card" elevation="0">
         <v-card-title class="procedure-card__head">
           <div>
@@ -430,87 +606,6 @@ onMounted(loadUnits)
           </template>
         </v-data-table>
       </v-card>
-
-      <section v-if="numericFields.length" class="chart-section">
-        <v-card class="metric-card" elevation="0">
-          <v-card-text>
-            <div class="metric-card__title">
-              <div>
-                <strong>Chỉ tiêu hiển thị trên biểu đồ</strong>
-                <span>Chọn một trường số liệu để so sánh giữa các đơn vị.</span>
-              </div>
-              <v-chip class="active-metric-chip" color="primary" variant="tonal" prepend-icon="mdi-chart-bar">{{ selectedMetricTitle }}</v-chip>
-            </div>
-            <v-chip-group v-model="selectedMetricKey" class="metric-chip-group" mandatory selected-class="selector-chip--active">
-              <v-chip
-                v-for="field in numericFields"
-                :key="field.key"
-                :value="field.key"
-                class="selector-chip metric-chip"
-                color="primary"
-                filter
-                variant="outlined"
-              >{{ field.title }}</v-chip>
-            </v-chip-group>
-            <template v-if="isAreaProcedure && groupingFields.length">
-              <v-divider class="my-4" />
-              <div class="grouping-selector">
-                <div>
-                  <strong>Gom dữ liệu theo</strong>
-                  <span>Cộng dồn chỉ tiêu trước khi vẽ biểu đồ.</span>
-                </div>
-                <v-chip-group v-model="selectedGroupKey" class="grouping-chip-group" mandatory selected-class="selector-chip--active">
-                  <v-chip
-                    v-for="field in groupingFields"
-                    :key="field.key"
-                    :value="field.key"
-                    class="selector-chip grouping-chip"
-                    color="primary"
-                    filter
-                    variant="outlined"
-                  >{{ field.title }}</v-chip>
-                </v-chip-group>
-              </div>
-            </template>
-          </v-card-text>
-        </v-card>
-
-        <v-row v-if="chartData.length" class="chart-grid">
-          <v-col cols="12" xl="6">
-            <v-card class="chart-card" elevation="0">
-              <v-card-title>
-                <div><strong>Biểu đồ cột</strong><span>{{ selectedMetricTitle }} theo {{ categoryField?.title }}</span></div>
-              </v-card-title>
-              <v-card-text>
-                <ComparisonBarChart
-                  :categories="chartCategories"
-                  :values="chartValues"
-                  :series-name="selectedMetricTitle"
-                  orientation="vertical"
-                  :loading="states[selectedProcedure.key].loading"
-                />
-              </v-card-text>
-            </v-card>
-          </v-col>
-          <v-col cols="12" xl="6">
-            <v-card class="chart-card" elevation="0">
-              <v-card-title>
-                <div><strong>Biểu đồ thanh</strong><span>So sánh {{ selectedMetricTitle }} giữa các đơn vị</span></div>
-              </v-card-title>
-              <v-card-text>
-                <ComparisonBarChart
-                  :categories="chartCategories"
-                  :values="chartValues"
-                  :series-name="selectedMetricTitle"
-                  orientation="horizontal"
-                  :loading="states[selectedProcedure.key].loading"
-                />
-              </v-card-text>
-            </v-card>
-          </v-col>
-        </v-row>
-        <v-empty-state v-else icon="mdi-chart-bar-off" title="Chưa có dữ liệu biểu đồ" text="Chỉ tiêu đang chọn không có dữ liệu số để so sánh." />
-      </section>
     </section>
   </v-container>
 </template>
@@ -536,5 +631,12 @@ onMounted(loadUnits)
 .procedure-table :deep(.total-row) { color: rgb(var(--v-theme-primary)); background: color-mix(in srgb,rgb(var(--v-theme-primary)) 11%,rgb(var(--v-theme-surface)))!important; font-weight: 700; }
 .procedure-table :deep(.calculated-total-row td) { border-top: 0!important; border-bottom: 1px solid rgba(var(--v-theme-primary),.2)!important; background: color-mix(in srgb,rgb(var(--v-theme-primary)) 11%,rgb(var(--v-theme-surface)))!important; }
 .chart-section { display: grid; gap: 16px; margin-top: 2px; }.metric-card,.chart-card { overflow: hidden; border: 0; border-radius: 10px; background: rgb(var(--v-theme-surface)); box-shadow: 0 4px 18px rgba(29,61,83,.09)!important; }.metric-card__title { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }.metric-card__title strong,.metric-card__title span,.grouping-selector strong,.grouping-selector span { display: block; }.metric-card__title strong,.grouping-selector strong { color: rgb(var(--v-theme-on-surface)); font-size: 16px; }.metric-card__title span,.grouping-selector span { margin-top: 4px; color: rgba(var(--v-theme-on-surface),.58); font-size: 12px; }.grouping-selector { display: grid; grid-template-columns: minmax(190px,auto) 1fr; align-items: center; gap: 18px; }.active-metric-chip { display: inline-flex!important; align-items: center; justify-content: center; min-width: 92px; height: 38px!important; padding-inline: 13px!important; border: 1px solid rgba(var(--v-theme-primary),.14); border-radius: 10px!important; font-size: 12px; font-weight: 600; white-space: nowrap; }.active-metric-chip :deep(.v-chip__content),.selector-chip :deep(.v-chip__content) { display: inline-flex; align-items: center; justify-content: center; width: auto; line-height: 1; white-space: nowrap; }.active-metric-chip :deep(.v-chip__prepend),.selector-chip :deep(.v-chip__filter) { display: inline-flex; align-items: center; justify-content: center; align-self: center; margin-inline-end: 6px; }.metric-chip-group :deep(.v-slide-group__content),.grouping-chip-group :deep(.v-slide-group__content) { display: flex; flex-wrap: wrap; gap: 9px; padding-block: 2px; }.selector-chip { display: inline-flex!important; align-items: center; justify-content: center; height: 38px!important; margin: 0!important; padding-inline: 14px!important; border-color: rgba(var(--v-theme-on-surface),.22)!important; border-radius: 10px!important; color: rgba(var(--v-theme-on-surface),.72)!important; background: rgba(var(--v-theme-surface),.75)!important; font-size: 12px; font-weight: 500; white-space: nowrap; transition: border-color .16s ease,background-color .16s ease,box-shadow .16s ease; }.selector-chip:hover { border-color: rgba(var(--v-theme-primary),.48)!important; color: rgb(var(--v-theme-primary))!important; background: rgba(var(--v-theme-primary),.035)!important; box-shadow: 0 3px 9px rgba(var(--v-theme-primary),.1); }.metric-chip { min-width: 88px; }.grouping-chip { min-width: 142px; }.selector-chip--active { border-color: rgb(var(--v-theme-primary))!important; color: rgb(var(--v-theme-primary))!important; background: rgba(var(--v-theme-primary),.1)!important; box-shadow: 0 3px 9px rgba(var(--v-theme-primary),.14); font-weight: 600; }.selector-chip--active :deep(.v-chip__filter) { opacity: 1; }.chart-grid { margin-top: -4px; }.chart-card > .v-card-title { padding: 18px 20px 10px; }.chart-card > .v-card-title strong,.chart-card > .v-card-title span { display: block; }.chart-card > .v-card-title strong { font-size: 16px; }.chart-card > .v-card-title span { margin-top: 4px; color: rgba(var(--v-theme-on-surface),.55); font-size: 11px; font-weight: 400; }.chart-card > .v-card-text { padding: 0 12px 12px; }
+.metric-choices { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; }
+.metric-chip-group { min-width: 0; flex: 1 1 480px; align-self: center; padding-block: 0; }
+.metric-chip-group :deep(.v-slide-group__content) { padding-block: 0; }
+.select-all-chip { min-width: 132px; align-self: center; }
+.metric-chip :deep(.v-chip__content) { gap: 7px; }
+.metric-color-dot { display: inline-block; flex: 0 0 10px; width: 10px; height: 10px; border-radius: 3px; }
+.chart-card > .v-card-title { white-space: normal; }
 @media(max-width:700px){.broadband-page{width:min(100% - 24px,1500px)}.filter-actions{justify-content:stretch;padding-top:0}.filter-actions .v-btn{width:100%}.procedure-card__head,.metric-card__title{align-items:flex-start;flex-direction:column}.procedure-card__status{width:100%;justify-content:space-between}.grouping-selector{grid-template-columns:1fr}.active-metric-chip{align-self:flex-start}}
 </style>

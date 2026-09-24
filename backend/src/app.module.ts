@@ -12,6 +12,7 @@ import { OracleModule } from './database/oracle.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { BroadbandModule } from './modules/broadband/broadband.module.js';
+import { CnttModule } from './modules/cntt/cntt.module.js';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { BroadbandModule } from './modules/broadband/broadband.module.js';
     AuthModule,
     AdminModule,
     BroadbandModule,
+    CnttModule,
   ],
   controllers: [AppController],
   providers: [
