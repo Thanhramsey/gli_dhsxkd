@@ -40,9 +40,14 @@ export const router = createRouter({
     },
     {
       path: '/broadband',
-      alias: ['/bang-rong', '/bcpt-bang-rong', '/he-thong-dl-giao-ban'],
+      alias: ['/bang-rong', '/bcpt-bang-rong'],
       name: 'broadband',
       component: () => import('../views/BroadbandView.vue'),
+    },
+    {
+      path: '/he-thong-dl-giao-ban',
+      name: 'kpi-dashboard',
+      component: () => import('../views/KpiDashboardView.vue'),
     },
     {
       path: '/bcpt-cntt',

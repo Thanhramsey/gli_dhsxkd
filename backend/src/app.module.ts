@@ -13,6 +13,7 @@ import { AuthModule } from './modules/auth/auth.module.js';
 import { AdminModule } from './modules/admin/admin.module.js';
 import { BroadbandModule } from './modules/broadband/broadband.module.js';
 import { CnttModule } from './modules/cntt/cntt.module.js';
+import { KpiModule } from './modules/kpi/kpi.module.js';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { CnttModule } from './modules/cntt/cntt.module.js';
     AdminModule,
     BroadbandModule,
     CnttModule,
+    KpiModule,
   ],
   controllers: [AppController],
   providers: [

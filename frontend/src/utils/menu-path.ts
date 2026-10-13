@@ -2,7 +2,7 @@ import type { MenuItem } from '../types/auth'
 
 const builtInMenuPaths: Readonly<Record<string, string>> = {
   // GLI_MENU.MENU_ID = 3 (Số liệu). MENU_URL in the current database is null.
-  '3': '/broadband',
+  '3': '/he-thong-dl-giao-ban',
 }
 
 export function resolveMenuPath(item: MenuItem): string | null {
