@@ -12,3 +12,22 @@ export interface KpiSummary {
   month: string
   rows: KpiRow[]
 }
+
+export type KpiTrendProcedure =
+  | 'TONG_HOP_KPI_BRCD'
+  | 'TONG_HOP_KPI_MYTV'
+  | 'TONG_HOP_KPI_CAM_MESH'
+  | 'TONG_HOP_KPI_TSL'
+  | 'TONG_HOP_KPI_CNTT'
+  | 'TONG_HOP_KPI_VINA_TS'
+
+export interface KpiTrendRow {
+  month: string
+  subscribers: number | null
+  revenue: number | null
+}
+
+export interface KpiTrend {
+  month: string
+  rows: KpiTrendRow[]
+}

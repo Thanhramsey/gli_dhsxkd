@@ -1,6 +1,6 @@
 import { http } from './http'
 import type { ApiResponse } from '../types/api'
-import type { KpiSummary } from '../types/kpi'
+import type { KpiSummary, KpiTrend, KpiTrendProcedure } from '../types/kpi'
 
 export const kpiApi = {
   async latestMonth(): Promise<string | null> {
@@ -9,6 +9,10 @@ export const kpiApi = {
   },
   async summary(month: string): Promise<KpiSummary> {
     const response = await http.post<ApiResponse<KpiSummary>>('/kpi/summary', { month }, { timeout: 120_000 })
+    return response.data.data
+  },
+  async trend(month: string, procedure: KpiTrendProcedure): Promise<KpiTrend> {
+    const response = await http.post<ApiResponse<KpiTrend>>('/kpi/trend', { month, procedure }, { timeout: 120_000 })
     return response.data.data
   },
 }

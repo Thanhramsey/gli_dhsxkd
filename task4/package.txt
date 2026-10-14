@@ -1,21 +1,484 @@
 CREATE OR REPLACE PACKAGE BODY NBH_CDS_NEW.MA_KPI_GLI_TONG AS
 
-   PROCEDURE TONG_HOP_KPI(P_TUNGAY VARCHAR2, P_DENNGAY VARCHAR2,P_RESULT OUT SYS_REFCURSOR)
-   IS
-   P_THANG varchar2(20);
+    ------------------------------------------------------------------
+    -- 1. TY TRONG DOANH THU CAC DICH VU VT TRONG TAM
+    ------------------------------------------------------------------
+    PROCEDURE TONG_HOP_KPI(
+        P_TUNGAY  IN VARCHAR2,
+        P_DENNGAY IN VARCHAR2,
+        P_RESULT  OUT SYS_REFCURSOR
+    )
+    IS
+        V_THANG VARCHAR2(20);
     BEGIN
-    P_THANG:=to_char(to_date(P_TUNGAY,'dd/mm/yyyy'),'yyyymm');
-    OPEN P_RESULT FOR
-    SELECT TEN_KPI,
-            SUM(KEHOACH_THANG)KEHOACH_THANG,
-            SUM(KEHOACH_THANG_LK)KEHOACH_THANG_LK,
-            SUM(THUCHIEN_THANG)THUCHIEN_THANG,
-            SUM(THUCHIEN_THANG_LK)THUCHIEN_THANG_LK,
-            ROUND(SUM(THUCHIEN_THANG)/ NULLIF(SUM(KEHOACH_THANG), 0) * 100,2) AS KETQUA_THANG,
-            ROUND(SUM(THUCHIEN_THANG_LK)/ NULLIF(SUM(KEHOACH_THANG_LK), 0) * 100,2) AS KETQUA_LK_THANG
-    FROM GLI_DM_KPI A
-    JOIN GLI_KQ_KPI_TONG B ON A.MA_KPI=B.MA_KPI AND THANG=P_THANG
-        GROUP BY TEN_KPI;
- END TONG_HOP_KPI;
+        V_THANG := TO_CHAR(
+            TO_DATE(P_TUNGAY, 'DD/MM/YYYY'),
+            'YYYYMM'
+        );
+
+        OPEN P_RESULT FOR
+            SELECT A.TEN_KPI,
+                   SUM(B.KEHOACH_THANG) AS KEHOACH_THANG,
+                   SUM(B.KEHOACH_THANG_LK) AS KEHOACH_THANG_LK,
+                   SUM(B.THUCHIEN_THANG) AS THUCHIEN_THANG,
+                   SUM(B.THUCHIEN_THANG_LK) AS THUCHIEN_THANG_LK,
+
+                   ROUND(
+                       SUM(B.THUCHIEN_THANG)
+                       / NULLIF(SUM(B.KEHOACH_THANG), 0) * 100,
+                       2
+                   ) AS KETQUA_THANG,
+
+                   ROUND(
+                       SUM(B.THUCHIEN_THANG_LK)
+                       / NULLIF(SUM(B.KEHOACH_THANG_LK), 0) * 100,
+                       2
+                   ) AS KETQUA_LK_THANG
+
+            FROM GLI_DM_KPI A
+            JOIN GLI_KQ_KPI_TONG B
+              ON A.MA_KPI = B.MA_KPI
+             AND B.THANG = V_THANG
+
+            GROUP BY A.TEN_KPI;
+
+    END TONG_HOP_KPI;
+
+
+    ------------------------------------------------------------------
+    -- 2. DOANH THU THUC TE FIBER + CO DINH TỪ ĐÀU NĂM ĐẾN THÁNG LẤY
+    -- P_THANG: YYYYMM, vi du 202608
+    ------------------------------------------------------------------
+    PROCEDURE TONG_HOP_KPI_BRCD(P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
+
+IS
+    V_THANG_BD   DATE;
+    V_THANG_KT   DATE;
+    V_TUNGAY     NUMBER;
+    V_DENNGAY    NUMBER;
+    V_SO_THANG   PLS_INTEGER;
+    V_PIVOT_COLS VARCHAR2(32767);
+    V_SQL        VARCHAR2(32767);
+BEGIN
+    -- 1. Kiem tra ngay dau vao
+    IF P_TUNGAY IS NULL OR P_DENNGAY IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Ngay khong duoc de trong');
+    END IF;
+    BEGIN
+        V_THANG_BD :=TRUNC(TO_DATE(P_TUNGAY, 'FXDD/MM/YYYY'), 'MM');
+        V_THANG_KT :=TRUNC(TO_DATE(P_DENNGAY, 'FXDD/MM/YYYY'), 'MM');
+    EXCEPTION
+        WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20002, 'Ngay phai theo DD/MM/YYYY');
+    END;
+    -- 2. Kiem tra khoang thoi gian
+    IF V_THANG_BD > V_THANG_KT THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Tu ngay phai nho hon den ngay');
+    END IF;
+    V_TUNGAY :=TO_NUMBER(TO_CHAR(V_THANG_BD, 'YYYYMMDD'));
+    V_DENNGAY :=TO_NUMBER(TO_CHAR(V_THANG_KT, 'YYYYMMDD'));
+    V_SO_THANG :=TRUNC(MONTHS_BETWEEN(V_THANG_KT, V_THANG_BD)) + 1;
+    -- 3. Tao danh sach cot PIVOT dong
+    SELECT LISTAGG(
+               '(''SL_TB'', ' || KY_CUOC ||
+               ') AS SL_TB_' || KY_CUOC ||
+               ', (''DOANH_THU'', ' || KY_CUOC ||
+               ') AS DOANH_THU_' || KY_CUOC,
+               ','
+           ) WITHIN GROUP (ORDER BY KY_CUOC)
+      INTO V_PIVOT_COLS
+      FROM (
+          SELECT TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD') AS KY_CUOC
+            FROM DUAL
+          CONNECT BY LEVEL <= V_SO_THANG);
+    -- 4. Tao SQL dong
+    V_SQL :=
+        'SELECT ''Biểu đồ biểu diễn theo tháng của BRCD-FIBER+CD'' AS BIEUDO, P.* ' ||
+        'FROM (
+            SELECT CHI_TIEU, KY_CUOC, GIA_TRI
+            FROM (
+                SELECT A.KY_CUOC,
+                       COUNT(DISTINCT A.THUEBAO_ID) AS SL_TB,
+                       SUM(A.NOGOC) AS DOANH_THU
+                  FROM V_CT_NO_BCSS A
+                 WHERE A.KHOANMUCTT_ID NOT IN
+                       (452, 3427, 3428, 3429, 3430)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID)
+                   AND (A.DICHVUVT_ID IN (1,10,11) OR A.LOAITB_ID = 58) AND A.KY_CUOC BETWEEN :B_TUNGAY AND :B_DENNGAY
+                 GROUP BY A.KY_CUOC )
+            UNPIVOT (
+                GIA_TRI FOR CHI_TIEU IN (
+                    SL_TB AS ''SL_TB'',DOANH_THU AS ''DOANH_THU'')))
+        PIVOT (
+            SUM(GIA_TRI)
+            FOR (CHI_TIEU, KY_CUOC) IN (' ||
+            V_PIVOT_COLS || ')) P';
+    -- 5. Mo cursor
+    OPEN P_RESULT FOR V_SQL
+        USING V_TUNGAY, V_DENNGAY;
+
+END TONG_HOP_KPI_BRCD;
+
+
+    ------------------------------------------------------------------
+    -- 2. DOANH THU THUC TE MYTV TỪ ĐÀU NĂM ĐẾN THÁNG LẤY
+    -- P_THANG: YYYYMM, vi du 202608
+PROCEDURE TONG_HOP_KPI_MYTV
+(
+    P_TUNGAY  IN VARCHAR2,
+    P_DENNGAY IN VARCHAR2,
+    P_RESULT  OUT SYS_REFCURSOR
+)
+IS
+    V_THANG_BD   DATE;
+    V_THANG_KT   DATE;
+    V_TUNGAY     NUMBER;
+    V_DENNGAY    NUMBER;
+    V_SO_THANG   PLS_INTEGER;
+    V_PIVOT_COLS VARCHAR2(32767);
+    V_SQL        VARCHAR2(32767);
+BEGIN
+    -- 1. Kiem tra ngay dau vao
+    IF P_TUNGAY IS NULL OR P_DENNGAY IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Ngay khong duoc de trong');
+    END IF;
+    BEGIN
+        V_THANG_BD :=TRUNC(TO_DATE(P_TUNGAY, 'FXDD/MM/YYYY'), 'MM');
+        V_THANG_KT :=TRUNC(TO_DATE(P_DENNGAY, 'FXDD/MM/YYYY'), 'MM');
+    EXCEPTION
+        WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20002, 'Ngay phai theo DD/MM/YYYY');
+    END;
+    -- 2. Kiem tra khoang thoi gian
+    IF V_THANG_BD > V_THANG_KT THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Tu ngay phai nho hon den ngay');
+    END IF;
+    V_TUNGAY :=TO_NUMBER(TO_CHAR(V_THANG_BD, 'YYYYMMDD'));
+    V_DENNGAY :=TO_NUMBER(TO_CHAR(V_THANG_KT, 'YYYYMMDD'));
+    V_SO_THANG :=TRUNC(MONTHS_BETWEEN(V_THANG_KT, V_THANG_BD)) + 1;
+    -- 3. Tao danh sach cot PIVOT dong
+    SELECT LISTAGG(
+               '(''SL_TB'', ' || KY_CUOC ||
+               ') AS SL_TB_' || KY_CUOC ||
+               ', (''DOANH_THU'', ' || KY_CUOC ||
+               ') AS DOANH_THU_' || KY_CUOC,
+               ','
+           ) WITHIN GROUP (ORDER BY KY_CUOC)
+      INTO V_PIVOT_COLS
+      FROM (
+          SELECT TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD') AS KY_CUOC
+            FROM DUAL
+          CONNECT BY LEVEL <= V_SO_THANG);
+    -- 4. Tao SQL dong
+    V_SQL :=
+        'SELECT ''Biểu đồ biểu diễn theo tháng của MYTV'' AS BIEUDO, P.* ' ||
+        'FROM (
+            SELECT CHI_TIEU, KY_CUOC, GIA_TRI
+            FROM (
+                SELECT A.KY_CUOC,
+                       COUNT(DISTINCT A.THUEBAO_ID) AS SL_TB,
+                       SUM(A.NOGOC) AS DOANH_THU
+                  FROM V_CT_NO_BCSS A
+                 WHERE A.KHOANMUCTT_ID NOT IN
+                       (452, 3427, 3428, 3429, 3430)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID)
+                   AND A.LOAITB_ID = 61 AND A.KY_CUOC BETWEEN :B_TUNGAY AND :B_DENNGAY
+                 GROUP BY A.KY_CUOC )
+            UNPIVOT (
+                GIA_TRI FOR CHI_TIEU IN (
+                    SL_TB AS ''SL_TB'',DOANH_THU AS ''DOANH_THU'')))
+        PIVOT (
+            SUM(GIA_TRI)
+            FOR (CHI_TIEU, KY_CUOC) IN (' ||
+            V_PIVOT_COLS || ')) P';
+    -- 5. Mo cursor
+    OPEN P_RESULT FOR V_SQL
+        USING V_TUNGAY, V_DENNGAY;
+
+END TONG_HOP_KPI_MYTV;
+------------------------------------------------------------------
+    -- 3. DOANH THU THUC TE MESH/CAM TỪ ĐÀU NĂM ĐẾN THÁNG LẤY
+    -- P_THANG: YYYYMM, vi du 202608
+PROCEDURE TONG_HOP_KPI_CAM_MESH( P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
+IS
+    V_THANG_BD   DATE;
+    V_THANG_KT   DATE;
+    V_TUNGAY     NUMBER;
+    V_DENNGAY    NUMBER;
+    V_SO_THANG   PLS_INTEGER;
+    V_PIVOT_COLS VARCHAR2(32767);
+    V_SQL        VARCHAR2(32767);
+BEGIN
+    -- 1. Kiem tra ngay dau vao
+    IF P_TUNGAY IS NULL OR P_DENNGAY IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Ngay khong duoc de trong');
+    END IF;
+    BEGIN
+        V_THANG_BD :=TRUNC(TO_DATE(P_TUNGAY, 'FXDD/MM/YYYY'), 'MM');
+        V_THANG_KT :=TRUNC(TO_DATE(P_DENNGAY, 'FXDD/MM/YYYY'), 'MM');
+    EXCEPTION
+        WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20002, 'Ngay phai theo DD/MM/YYYY');
+    END;
+    -- 2. Kiem tra khoang thoi gian
+    IF V_THANG_BD > V_THANG_KT THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Tu ngay phai nho hon den ngay');
+    END IF;
+    V_TUNGAY :=TO_NUMBER(TO_CHAR(V_THANG_BD, 'YYYYMMDD'));
+    V_DENNGAY :=TO_NUMBER(TO_CHAR(V_THANG_KT, 'YYYYMMDD'));
+    V_SO_THANG :=TRUNC(MONTHS_BETWEEN(V_THANG_KT, V_THANG_BD)) + 1;
+    -- 3. Tao danh sach cot PIVOT dong
+    SELECT LISTAGG(
+               '(''SL_TB'', ' || KY_CUOC ||
+               ') AS SL_TB_' || KY_CUOC ||
+               ', (''DOANH_THU'', ' || KY_CUOC ||
+               ') AS DOANH_THU_' || KY_CUOC,
+               ','
+           ) WITHIN GROUP (ORDER BY KY_CUOC)
+      INTO V_PIVOT_COLS
+      FROM (
+          SELECT TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD') AS KY_CUOC
+            FROM DUAL
+          CONNECT BY LEVEL <= V_SO_THANG);
+    -- 4. Tao SQL dong
+    V_SQL :=
+        'SELECT ''Biểu đồ biểu diễn theo tháng của CAM/MESH'' AS BIEUDO, P.* ' ||
+        'FROM (
+            SELECT CHI_TIEU, KY_CUOC, GIA_TRI
+            FROM (
+                SELECT A.KY_CUOC,
+                       COUNT(DISTINCT A.THUEBAO_ID) AS SL_TB,
+                       SUM(A.NOGOC) AS DOANH_THU
+                  FROM V_CT_NO_BCSS A
+                 WHERE A.KHOANMUCTT_ID NOT IN
+                       (452, 3427, 3428, 3429, 3430)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID)
+                   AND (A.DICHVUVT_ID =12 OR A.LOAITB_ID = 210) AND A.KY_CUOC BETWEEN :B_TUNGAY AND :B_DENNGAY
+                 GROUP BY A.KY_CUOC )
+            UNPIVOT (
+                GIA_TRI FOR CHI_TIEU IN (
+                    SL_TB AS ''SL_TB'',DOANH_THU AS ''DOANH_THU'')))
+        PIVOT (
+            SUM(GIA_TRI)
+            FOR (CHI_TIEU, KY_CUOC) IN (' ||
+            V_PIVOT_COLS || ')) P';
+    -- 5. Mo cursor
+    OPEN P_RESULT FOR V_SQL
+        USING V_TUNGAY, V_DENNGAY;
+
+END TONG_HOP_KPI_CAM_MESH;
+------------------------------------------------------------------
+    -- 4. DOANH THU THUC TE TSL TỪ ĐÀU NĂM ĐẾN THÁNG LẤY
+    -- P_THANG: YYYYMM, vi du 202608
+PROCEDURE TONG_HOP_KPI_TSL(P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
+IS
+    V_THANG_BD   DATE;
+    V_THANG_KT   DATE;
+    V_TUNGAY     NUMBER;
+    V_DENNGAY    NUMBER;
+    V_SO_THANG   PLS_INTEGER;
+    V_PIVOT_COLS VARCHAR2(32767);
+    V_SQL        VARCHAR2(32767);
+BEGIN
+    -- 1. Kiem tra ngay dau vao
+    IF P_TUNGAY IS NULL OR P_DENNGAY IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Ngay khong duoc de trong');
+    END IF;
+    BEGIN
+        V_THANG_BD :=TRUNC(TO_DATE(P_TUNGAY, 'FXDD/MM/YYYY'), 'MM');
+        V_THANG_KT :=TRUNC(TO_DATE(P_DENNGAY, 'FXDD/MM/YYYY'), 'MM');
+    EXCEPTION
+        WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20002, 'Ngay phai theo DD/MM/YYYY');
+    END;
+    -- 2. Kiem tra khoang thoi gian
+    IF V_THANG_BD > V_THANG_KT THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Tu ngay phai nho hon den ngay');
+    END IF;
+    V_TUNGAY :=TO_NUMBER(TO_CHAR(V_THANG_BD, 'YYYYMMDD'));
+    V_DENNGAY :=TO_NUMBER(TO_CHAR(V_THANG_KT, 'YYYYMMDD'));
+    V_SO_THANG :=TRUNC(MONTHS_BETWEEN(V_THANG_KT, V_THANG_BD)) + 1;
+    -- 3. Tao danh sach cot PIVOT dong
+    SELECT LISTAGG(
+               '(''SL_TB'', ' || KY_CUOC ||
+               ') AS SL_TB_' || KY_CUOC ||
+               ', (''DOANH_THU'', ' || KY_CUOC ||
+               ') AS DOANH_THU_' || KY_CUOC,
+               ','
+           ) WITHIN GROUP (ORDER BY KY_CUOC)
+      INTO V_PIVOT_COLS
+      FROM (
+          SELECT TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD') AS KY_CUOC
+            FROM DUAL
+          CONNECT BY LEVEL <= V_SO_THANG);
+    -- 4. Tao SQL dong
+    V_SQL :=
+        'SELECT ''Biểu đồ biểu diễn theo tháng của TSL'' AS BIEUDO, P.* ' ||
+        'FROM (
+            SELECT CHI_TIEU, KY_CUOC, GIA_TRI
+            FROM (
+                SELECT A.KY_CUOC,
+                       COUNT(DISTINCT A.THUEBAO_ID) AS SL_TB,
+                       SUM(A.NOGOC) AS DOANH_THU
+                  FROM V_CT_NO_BCSS A
+                 WHERE A.KHOANMUCTT_ID NOT IN
+                       (452, 3427, 3428, 3429, 3430)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID)
+                   AND A.DICHVUVT_ID IN (7,8,9) AND A.KY_CUOC BETWEEN :B_TUNGAY AND :B_DENNGAY
+                 GROUP BY A.KY_CUOC )
+            UNPIVOT (
+                GIA_TRI FOR CHI_TIEU IN (
+                    SL_TB AS ''SL_TB'',DOANH_THU AS ''DOANH_THU'')))
+        PIVOT (
+            SUM(GIA_TRI)
+            FOR (CHI_TIEU, KY_CUOC) IN (' ||
+            V_PIVOT_COLS || ')) P';
+    -- 5. Mo cursor
+    OPEN P_RESULT FOR V_SQL
+    USING V_TUNGAY, V_DENNGAY;
+END TONG_HOP_KPI_TSL;
+
+------------------------------------------------------------------
+    -- 5. DOANH THU THUC TE CNTT TỪ ĐÀU NĂM ĐẾN THÁNG LẤY
+    -- P_THANG: YYYYMM, vi du 202608
+PROCEDURE TONG_HOP_KPI_CNTT(P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
+IS
+    V_THANG_BD   DATE;
+    V_THANG_KT   DATE;
+    V_TUNGAY     NUMBER;
+    V_DENNGAY    NUMBER;
+    V_SO_THANG   PLS_INTEGER;
+    V_PIVOT_COLS VARCHAR2(32767);
+    V_SQL        VARCHAR2(32767);
+BEGIN
+    -- 1. Kiem tra ngay dau vao
+    IF P_TUNGAY IS NULL OR P_DENNGAY IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Ngay khong duoc de trong');
+    END IF;
+    BEGIN
+        V_THANG_BD :=TRUNC(TO_DATE(P_TUNGAY, 'FXDD/MM/YYYY'), 'MM');
+        V_THANG_KT :=TRUNC(TO_DATE(P_DENNGAY, 'FXDD/MM/YYYY'), 'MM');
+    EXCEPTION
+        WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20002, 'Ngay phai theo DD/MM/YYYY');
+    END;
+    -- 2. Kiem tra khoang thoi gian
+    IF V_THANG_BD > V_THANG_KT THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Tu ngay phai nho hon den ngay');
+    END IF;
+    V_TUNGAY :=TO_NUMBER(TO_CHAR(V_THANG_BD, 'YYYYMMDD'));
+    V_DENNGAY :=TO_NUMBER(TO_CHAR(V_THANG_KT, 'YYYYMMDD'));
+    V_SO_THANG :=TRUNC(MONTHS_BETWEEN(V_THANG_KT, V_THANG_BD)) + 1;
+    -- 3. Tao danh sach cot PIVOT dong
+    SELECT LISTAGG(
+               '(''SL_TB'', ' || KY_CUOC ||
+               ') AS SL_TB_' || KY_CUOC ||
+               ', (''DOANH_THU'', ' || KY_CUOC ||
+               ') AS DOANH_THU_' || KY_CUOC,
+               ','
+           ) WITHIN GROUP (ORDER BY KY_CUOC)
+      INTO V_PIVOT_COLS
+      FROM (
+          SELECT TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD') AS KY_CUOC
+            FROM DUAL
+          CONNECT BY LEVEL <= V_SO_THANG);
+    -- 4. Tao SQL dong
+    V_SQL :=
+        'SELECT ''Biểu đồ biểu diễn theo tháng của CNTT phan bổ'' AS BIEUDO, P.* ' ||
+        'FROM (
+            SELECT CHI_TIEU, KY_CUOC, GIA_TRI
+            FROM (
+                SELECT A.KY_CUOC,
+                       COUNT(DISTINCT A.THUEBAO_ID) AS SL_TB,
+                       SUM(A.NOGOC) AS DOANH_THU
+                  FROM V_CT_NO_BCSS A
+                 WHERE A.KHOANMUCTT_ID NOT IN
+                       (452, 3427, 3428, 3429, 3430)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID)
+                   AND A.DICHVUVT_ID IN (13,14,15,16) AND A.KY_CUOC BETWEEN :B_TUNGAY AND :B_DENNGAY
+                 GROUP BY A.KY_CUOC )
+            UNPIVOT (
+                GIA_TRI FOR CHI_TIEU IN (
+                    SL_TB AS ''SL_TB'',DOANH_THU AS ''DOANH_THU'')))
+        PIVOT (
+            SUM(GIA_TRI)
+            FOR (CHI_TIEU, KY_CUOC) IN (' ||
+            V_PIVOT_COLS || ')) P';
+    -- 5. Mo cursor
+    OPEN P_RESULT FOR V_SQL
+        USING V_TUNGAY, V_DENNGAY;
+
+END TONG_HOP_KPI_CNTT;
+------------------------------------------------------------------
+    -- 6. DOANH THU THUC TE CNTT TỪ ĐÀU NĂM ĐẾN THÁNG LẤY
+    -- P_THANG: YYYYMM, vi du 202608
+PROCEDURE TONG_HOP_KPI_VINA_TS(P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
+IS
+    V_THANG_BD   DATE;
+    V_THANG_KT   DATE;
+    V_TUNGAY     NUMBER;
+    V_DENNGAY    NUMBER;
+    V_SO_THANG   PLS_INTEGER;
+    V_PIVOT_COLS VARCHAR2(32767);
+    V_SQL        VARCHAR2(32767);
+BEGIN
+    -- 1. Kiem tra ngay dau vao
+    IF P_TUNGAY IS NULL OR P_DENNGAY IS NULL THEN
+        RAISE_APPLICATION_ERROR(-20001, 'Ngay khong duoc de trong');
+    END IF;
+    BEGIN
+        V_THANG_BD :=TRUNC(TO_DATE(P_TUNGAY, 'FXDD/MM/YYYY'), 'MM');
+        V_THANG_KT :=TRUNC(TO_DATE(P_DENNGAY, 'FXDD/MM/YYYY'), 'MM');
+    EXCEPTION
+        WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20002, 'Ngay phai theo DD/MM/YYYY');
+    END;
+    -- 2. Kiem tra khoang thoi gian
+    IF V_THANG_BD > V_THANG_KT THEN
+        RAISE_APPLICATION_ERROR(-20003, 'Tu ngay phai nho hon den ngay');
+    END IF;
+    V_TUNGAY :=TO_NUMBER(TO_CHAR(V_THANG_BD, 'YYYYMMDD'));
+    V_DENNGAY :=TO_NUMBER(TO_CHAR(V_THANG_KT, 'YYYYMMDD'));
+    V_SO_THANG :=TRUNC(MONTHS_BETWEEN(V_THANG_KT, V_THANG_BD)) + 1;
+    -- 3. Tao danh sach cot PIVOT dong
+    SELECT LISTAGG(
+               '(''SL_TB'', ' || KY_CUOC ||
+               ') AS SL_TB_' || KY_CUOC ||
+               ', (''DOANH_THU'', ' || KY_CUOC ||
+               ') AS DOANH_THU_' || KY_CUOC,
+               ','
+           ) WITHIN GROUP (ORDER BY KY_CUOC)
+      INTO V_PIVOT_COLS
+      FROM (
+          SELECT TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD') AS KY_CUOC
+            FROM DUAL
+          CONNECT BY LEVEL <= V_SO_THANG);
+    -- 4. Tao SQL dong
+    V_SQL :=
+        'SELECT ''Biểu đồ biểu diễn theo tháng của VINA_TS phan bổ'' AS BIEUDO, P.* ' ||
+        'FROM (
+            SELECT CHI_TIEU, KY_CUOC, GIA_TRI
+            FROM (
+                SELECT A.KY_CUOC,
+                       COUNT(DISTINCT A.THUEBAO_ID) AS SL_TB,
+                       SUM(A.NOGOC) AS DOANH_THU
+                  FROM V_CT_NO_BCSS A
+                 WHERE A.KHOANMUCTT_ID NOT IN
+                       (452, 3427, 3428, 3429, 3430)
+                   AND NOT EXISTS (
+                       SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID)
+                   AND A.DICHVUVT_ID IN (2) AND A.KY_CUOC BETWEEN :B_TUNGAY AND :B_DENNGAY
+                 GROUP BY A.KY_CUOC )
+            UNPIVOT (
+                GIA_TRI FOR CHI_TIEU IN (
+                    SL_TB AS ''SL_TB'',DOANH_THU AS ''DOANH_THU'')))
+        PIVOT (
+            SUM(GIA_TRI)
+            FOR (CHI_TIEU, KY_CUOC) IN (' ||
+            V_PIVOT_COLS || ')) P';
+    -- 5. Mo cursor
+    OPEN P_RESULT FOR V_SQL
+        USING V_TUNGAY, V_DENNGAY;
+
+END TONG_HOP_KPI_VINA_TS;
 
 END MA_KPI_GLI_TONG;

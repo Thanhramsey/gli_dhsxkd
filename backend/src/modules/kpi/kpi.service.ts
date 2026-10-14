@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import oracledb from 'oracledb';
 import { OracleService } from '../../database/oracle.service.js';
 import { KpiQueryDto } from './kpi-query.dto.js';
+import { KpiTrendQueryDto } from './kpi-trend-query.dto.js';
 
 const PACKAGE_NAME = 'NBH_CDS_NEW.MA_KPI_GLI_TONG';
 const PROCEDURE_NAME = 'TONG_HOP_KPI';
@@ -14,6 +15,12 @@ export interface KpiRow {
   cumulativeActual: number;
   monthlyRate: number | null;
   cumulativeRate: number | null;
+}
+
+export interface KpiTrendRow {
+  month: string;
+  subscribers: number | null;
+  revenue: number | null;
 }
 
 @Injectable()
@@ -48,6 +55,38 @@ export class KpiService {
       rows: Array.isArray(rawRows)
         ? rawRows.map((row) => this.normalizeRow(row as Record<string, unknown>))
         : [],
+    };
+  }
+
+  async trend(input: KpiTrendQueryDto): Promise<{ month: string; rows: KpiTrendRow[] }> {
+    const [year, month] = input.month.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const result = await this.oracleService.executeProcedure(
+      PACKAGE_NAME,
+      input.procedure,
+      {
+        P_TUNGAY: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: `01/01/${year}` },
+        P_DENNGAY: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: `${String(lastDay).padStart(2, '0')}/${String(month).padStart(2, '0')}/${year}` },
+        P_RESULT: { dir: oracledb.BIND_OUT, type: oracledb.CURSOR },
+      },
+    );
+    const rawRows = result.outBinds?.P_RESULT;
+    const row = Array.isArray(rawRows) ? rawRows[0] as Record<string, unknown> | undefined : undefined;
+    const number = (value: unknown): number | null => {
+      if (value == null) return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+      month: input.month,
+      rows: Array.from({ length: month }, (_, index) => {
+        const monthText = `${year}${String(index + 1).padStart(2, '0')}`;
+        return {
+          month: `${year}-${String(index + 1).padStart(2, '0')}`,
+          subscribers: number(row?.[`SL_TB_${monthText}01`]),
+          revenue: number(row?.[`DOANH_THU_${monthText}01`]),
+        };
+      }),
     };
   }
 

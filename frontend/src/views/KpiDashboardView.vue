@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { kpiApi } from '../api/kpi.api'
 import { getAuthErrorMessage } from '../api/auth.api'
-import type { KpiRow } from '../types/kpi'
+import type { KpiRow, KpiTrendProcedure, KpiTrendRow } from '../types/kpi'
 import '../plugins/echarts'
 
 const now = new Date()
@@ -12,7 +12,18 @@ const year = ref(now.getFullYear())
 const monthOptions = Array.from({ length: 12 }, (_, index) => ({ title: `Tháng ${index + 1}`, value: index + 1 }))
 const yearOptions = Array.from({ length: 8 }, (_, index) => now.getFullYear() + 1 - index)
 const month = computed(() => `${year.value}-${String(monthNumber.value).padStart(2, '0')}`)
+const procedureOptions: { title: string; value: 'TONG_HOP_KPI' | KpiTrendProcedure }[] = [
+  { title: 'Tổng hợp KPI', value: 'TONG_HOP_KPI' },
+  { title: 'BRCD (Fiber + Cố định)', value: 'TONG_HOP_KPI_BRCD' },
+  { title: 'MyTV', value: 'TONG_HOP_KPI_MYTV' },
+  { title: 'Camera / Mesh', value: 'TONG_HOP_KPI_CAM_MESH' },
+  { title: 'TSL', value: 'TONG_HOP_KPI_TSL' },
+  { title: 'CNTT phân bổ', value: 'TONG_HOP_KPI_CNTT' },
+  { title: 'Vina trả sau', value: 'TONG_HOP_KPI_VINA_TS' },
+]
+const selectedProcedure = ref<'TONG_HOP_KPI' | KpiTrendProcedure>('TONG_HOP_KPI')
 const rows = ref<KpiRow[]>([])
+const trendRows = ref<KpiTrendRow[]>([])
 const selectedKpiNames = ref<string[]>([])
 const cumulativeMode = ref(false)
 const chipColors = ['#d9efff', '#def5ec', '#fff0d6', '#eee5ff', '#ffe4e4', '#e4edff', '#e5f2d9']
@@ -21,14 +32,42 @@ const chartRows = computed(() => selectedKpiNames.value.length
   : rows.value)
 const loading = ref(false)
 const loaded = ref(false)
+const initialized = ref(false)
 const error = ref('')
 const numberFormat = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 })
+const compactNumberFormat = new Intl.NumberFormat('vi-VN', { notation: 'compact', maximumFractionDigits: 1 })
+const barLabel = {
+  show: true,
+  position: 'top' as const,
+  rotate: -45,
+  distance: 8,
+  color: '#244252',
+  fontSize: 11,
+  fontWeight: 700,
+  formatter: ({ value }: { value: number | null }) => value == null ? '' : compactNumberFormat.format(value),
+}
 const monthLabel = computed(() => {
   return `tháng ${monthNumber.value}/${year.value}`
 })
 const totalActual = computed(() => rows.value.reduce((sum, row) => sum + (cumulativeMode.value ? row.cumulativeActual : row.monthlyActual), 0))
 const totalPlan = computed(() => rows.value.reduce((sum, row) => sum + (cumulativeMode.value ? row.cumulativePlan : row.monthlyPlan), 0))
 const completion = computed(() => totalPlan.value ? totalActual.value / totalPlan.value * 100 : null)
+const selectedProcedureLabel = computed(() => procedureOptions.find(option => option.value === selectedProcedure.value)?.title ?? '')
+const trendHasData = computed(() => trendRows.value.some(row => row.revenue != null || row.subscribers != null))
+const trendHasRevenue = computed(() => trendRows.value.some(row => row.revenue != null))
+const currentTrend = computed(() => trendRows.value[trendRows.value.length - 1])
+const cumulativeRevenue = computed(() => trendRows.value.reduce((sum, row) => sum + (row.revenue ?? 0), 0))
+const trendTableRows = computed(() => {
+  let totalRevenue = 0
+  let hasRevenue = false
+  return trendRows.value.map(row => {
+    if (row.revenue != null) {
+      totalRevenue += row.revenue
+      hasRevenue = true
+    }
+    return { ...row, totalRevenue: hasRevenue ? totalRevenue : null }
+  })
+})
 function toggleKpiFilter(name: string) {
   selectedKpiNames.value = selectedKpiNames.value.includes(name)
     ? selectedKpiNames.value.filter(item => item !== name)
@@ -39,44 +78,79 @@ const pieOption = computed(() => ({
   legend: { type: 'plain', orient: 'horizontal', left: 'center', bottom: 0, width: '96%', itemGap: 10, textStyle: { color: '#526a7b', fontSize: 11 } },
   series: [{ type: 'pie', radius: ['40%', '67%'], center: ['50%', '42%'], itemStyle: { borderColor: '#fff', borderWidth: 3 }, label: { formatter: '{b}\n{d}%' }, labelLayout: { hideOverlap: true }, data: rows.value.filter(row => (cumulativeMode.value ? row.cumulativeActual : row.monthlyActual) > 0).map(row => ({ name: row.name, value: cumulativeMode.value ? row.cumulativeActual : row.monthlyActual })) }],
 }))
-const lineOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
+const monthlyBarOption = computed(() => ({
+  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (value: number) => numberFormat.format(value) },
   legend: { top: 4, textStyle: { color: '#526a7b' } },
-  grid: { left: 62, right: 24, top: 48, bottom: 85 },
+  grid: { left: 62, right: 24, top: 78, bottom: 100 },
   xAxis: { type: 'category', data: chartRows.value.map(row => row.name), axisLabel: { rotate: chartRows.value.length > 6 ? 30 : 0, interval: 0, color: '#526a7b' } },
-  yAxis: { type: 'value', axisLabel: { color: '#526a7b', formatter: (value: number) => numberFormat.format(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+  yAxis: { type: 'value', axisLabel: { color: '#526a7b', formatter: (value: number) => compactNumberFormat.format(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
   series: [
-    { name: 'Kế hoạch tháng', type: 'line', smooth: true, symbolSize: 8, data: chartRows.value.map(row => row.monthlyPlan), itemStyle: { color: '#e58a00' }, lineStyle: { color: '#e58a00', width: 3 } },
-    { name: 'Thực hiện tháng', type: 'line', smooth: true, symbolSize: 8, data: chartRows.value.map(row => row.monthlyActual), itemStyle: { color: '#087cba' }, lineStyle: { color: '#087cba', width: 3 }, areaStyle: { color: 'rgba(8,124,186,.08)' } },
+    { name: 'Kế hoạch tháng', type: 'bar', barMaxWidth: 34, data: chartRows.value.map(row => row.monthlyPlan), itemStyle: { color: '#6091bd' }, label: barLabel },
+    { name: 'Thực hiện tháng', type: 'bar', barMaxWidth: 34, data: chartRows.value.map(row => row.monthlyActual), itemStyle: { color: '#e07b34' }, label: barLabel },
   ],
 }))
-const cumulativeLineOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
+const cumulativeBarOption = computed(() => ({
+  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (value: number) => numberFormat.format(value) },
   legend: { top: 4, textStyle: { color: '#526a7b' } },
-  grid: { left: 62, right: 24, top: 48, bottom: 85 },
+  grid: { left: 62, right: 24, top: 78, bottom: 100 },
   xAxis: { type: 'category', data: chartRows.value.map(row => row.name), axisLabel: { rotate: chartRows.value.length > 6 ? 30 : 0, interval: 0, color: '#526a7b' } },
-  yAxis: { type: 'value', axisLabel: { color: '#526a7b', formatter: (value: number) => numberFormat.format(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+  yAxis: { type: 'value', axisLabel: { color: '#526a7b', formatter: (value: number) => compactNumberFormat.format(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
   series: [
-    { name: 'Kế hoạch lũy kế', type: 'line', smooth: true, symbolSize: 8, data: chartRows.value.map(row => row.cumulativePlan), itemStyle: { color: '#e58a00' }, lineStyle: { color: '#e58a00', width: 3 } },
-    { name: 'Thực hiện lũy kế', type: 'line', smooth: true, symbolSize: 8, data: chartRows.value.map(row => row.cumulativeActual), itemStyle: { color: '#087cba' }, lineStyle: { color: '#087cba', width: 3 }, areaStyle: { color: 'rgba(8,124,186,.08)' } },
+    { name: 'Kế hoạch lũy kế', type: 'bar', barMaxWidth: 34, data: chartRows.value.map(row => row.cumulativePlan), itemStyle: { color: '#6091bd' }, label: barLabel },
+    { name: 'Thực hiện lũy kế', type: 'bar', barMaxWidth: 34, data: chartRows.value.map(row => row.cumulativeActual), itemStyle: { color: '#e07b34' }, label: barLabel },
   ],
 }))
 
+const trendOption = computed(() => ({
+  tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, valueFormatter: (value: number) => numberFormat.format(value) },
+  legend: { top: 8, textStyle: { color: '#526a7b' } },
+  grid: { left: 66, right: 66, top: 76, bottom: 48 },
+  xAxis: { type: 'category', data: trendRows.value.map(row => `T${Number(row.month.slice(5))}`), axisLabel: { color: '#526a7b' } },
+  yAxis: [
+    { type: 'value', name: 'Doanh thu', axisLabel: { color: '#526a7b', formatter: (value: number) => compactNumberFormat.format(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+    { type: 'value', name: 'Thuê bao', axisLabel: { color: '#526a7b', formatter: (value: number) => compactNumberFormat.format(value) }, splitLine: { show: false } },
+  ],
+  series: [
+    { name: 'Doanh thu', type: 'bar', yAxisIndex: 0, barMaxWidth: 34, data: trendRows.value.map(row => row.revenue), itemStyle: { color: '#6091bd' }, label: barLabel },
+    { name: 'Số thuê bao', type: 'bar', yAxisIndex: 1, barMaxWidth: 34, data: trendRows.value.map(row => row.subscribers), itemStyle: { color: '#df9650' }, label: barLabel },
+    { name: '\u0110\u01b0\u1eddng xu h\u01b0\u1edbng doanh thu', type: 'line', yAxisIndex: 0, data: trendRows.value.map(row => row.revenue), smooth: true, symbol: 'circle', symbolSize: 8, z: 3, lineStyle: { width: 3, color: '#0c8b8d' }, itemStyle: { color: '#0c8b8d', borderColor: '#fff', borderWidth: 2 } },
+  ],
+}))
+
+let loadVersion = 0
 async function load() {
   if (!month.value) return
+  const version = ++loadVersion
+  const procedure = selectedProcedure.value
+  const queryMonth = month.value
   loading.value = true
+  loaded.value = false
+  rows.value = []
+  trendRows.value = []
   error.value = ''
   try {
-    const result = await kpiApi.summary(month.value)
-    rows.value = result.rows
-    selectedKpiNames.value = selectedKpiNames.value.filter(name => result.rows.some(row => row.name === name))
+    if (procedure === 'TONG_HOP_KPI') {
+      const result = await kpiApi.summary(queryMonth)
+      if (version !== loadVersion) return
+      rows.value = result.rows
+      trendRows.value = []
+      selectedKpiNames.value = selectedKpiNames.value.filter(name => result.rows.some(row => row.name === name))
+    } else {
+      const result = await kpiApi.trend(queryMonth, procedure)
+      if (version !== loadVersion) return
+      trendRows.value = result.rows
+      rows.value = []
+      selectedKpiNames.value = []
+    }
     loaded.value = true
   } catch (cause) {
+    if (version !== loadVersion) return
     rows.value = []
+    trendRows.value = []
     loaded.value = true
     error.value = getAuthErrorMessage(cause)
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 }
 
@@ -117,26 +191,30 @@ async function initialize() {
     error.value = getAuthErrorMessage(cause)
   } finally {
     loading.value = false
+    initialized.value = true
   }
 }
 
 onMounted(initialize)
+watch([selectedProcedure, monthNumber, year], () => { if (initialized.value) void load() })
 </script>
 
 <template>
   <v-container class="kpi-page" fluid>
     <header class="page-head">
-      <div><span class="eyebrow">HỆ THỐNG DỮ LIỆU GIAO BAN</span><h1>Tổng hợp chỉ tiêu KPI</h1><p>Kế hoạch và kết quả thực hiện theo từng chỉ tiêu trong {{ monthLabel }}.</p></div>
+      <div><span class="eyebrow">HỆ THỐNG DỮ LIỆU GIAO BAN</span><h1>Tổng hợp chỉ tiêu KPI</h1><p>{{ selectedProcedure === 'TONG_HOP_KPI' ? `Kế hoạch và kết quả thực hiện theo từng chỉ tiêu trong ${monthLabel}.` : `Doanh thu và số thuê bao ${selectedProcedureLabel} từ đầu năm đến ${monthLabel}.` }}</p></div>
       <v-chip color="primary" variant="tonal" prepend-icon="mdi-calendar-month">{{ monthLabel }}</v-chip>
     </header>
     <v-card class="filter-card" elevation="0"><v-card-text class="filter-row">
+      <v-select v-model="selectedProcedure" :items="procedureOptions" label="Đầu KPI" variant="outlined" hide-details />
       <v-select v-model="monthNumber" :items="monthOptions" label="Tháng báo cáo" variant="outlined" hide-details />
       <v-select v-model="year" :items="yearOptions" label="Năm" variant="outlined" hide-details />
       <v-btn color="primary" prepend-icon="mdi-chart-box-outline" :loading="loading" @click="load">Xem số liệu</v-btn>
-      <div class="mode-toggle"><span>{{ cumulativeMode ? 'L\u0169y k\u1ebf' : 'Theo th\u00e1ng' }}</span><v-switch v-model="cumulativeMode" color="primary" density="compact" inset hide-details /></div>
+      <div v-if="selectedProcedure === 'TONG_HOP_KPI'" class="mode-toggle"><span>{{ cumulativeMode ? 'L\u0169y k\u1ebf' : 'Theo th\u00e1ng' }}</span><v-switch v-model="cumulativeMode" color="primary" density="compact" inset hide-details /></div>
     </v-card-text></v-card>
     <v-alert v-if="error" class="mt-5" type="error" variant="tonal">{{ error }}</v-alert>
     <template v-if="loaded && !error">
+      <template v-if="selectedProcedure === 'TONG_HOP_KPI'">
       <v-row class="summary-row">
         <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>{{ cumulativeMode ? 'K\u1ebe HO\u1ea0CH L\u0168Y K\u1ebe' : 'K\u1ebe HO\u1ea0CH TH\u00c1NG' }}</small><strong>{{ numberFormat.format(totalPlan) }}</strong></v-card></v-col>
         <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>{{ cumulativeMode ? 'TH\u1ef0C HI\u1ec6N L\u0168Y K\u1ebe' : 'TH\u1ef0C HI\u1ec6N TH\u00c1NG' }}</small><strong>{{ numberFormat.format(totalActual) }}</strong></v-card></v-col>
@@ -177,7 +255,7 @@ onMounted(initialize)
       </v-row>
       <v-card v-if="rows.length" class="filter-card chart-filter" elevation="0">
         <v-card-text>
-          <div class="chart-filter-label">Lọc chỉ tiêu trên hai biểu đồ đường</div>
+          <div class="chart-filter-label">Lọc chỉ tiêu trên hai biểu đồ cột</div>
           <div class="chart-filter-grid">
             <v-chip
               class="filter-chip"
@@ -201,13 +279,43 @@ onMounted(initialize)
         </v-card-text>
       </v-card>
       <v-row v-if="rows.length" class="chart-row">
-        <v-col cols="12" lg="6"><v-card class="chart-card" elevation="0"><v-card-title><strong>Kế hoạch và thực hiện theo KPI</strong><span>Giá trị tháng {{ monthLabel }}</span></v-card-title><v-card-text><VChart class="chart" :option="lineOption" autoresize /></v-card-text></v-card></v-col>
-        <v-col cols="12" lg="6"><v-card class="chart-card" elevation="0"><v-card-title><strong>Kế hoạch và thực hiện lũy kế theo KPI</strong><span>Giá trị lũy kế đến {{ monthLabel }}</span></v-card-title><v-card-text><VChart class="chart" :option="cumulativeLineOption" autoresize /></v-card-text></v-card></v-col>
+        <v-col cols="12" lg="6"><v-card class="chart-card" elevation="0"><v-card-title><strong>Kế hoạch và thực hiện theo KPI</strong><span>Giá trị tháng {{ monthLabel }}</span></v-card-title><v-card-text><VChart class="chart" :option="monthlyBarOption" autoresize /></v-card-text></v-card></v-col>
+        <v-col cols="12" lg="6"><v-card class="chart-card" elevation="0"><v-card-title><strong>Kế hoạch và thực hiện lũy kế theo KPI</strong><span>Giá trị lũy kế đến {{ monthLabel }}</span></v-card-title><v-card-text><VChart class="chart" :option="cumulativeBarOption" autoresize /></v-card-text></v-card></v-col>
       </v-row>
+      </template>
+      <template v-else>
+        <v-row class="summary-row">
+          <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>DOANH THU THÁNG</small><strong>{{ currentTrend?.revenue == null ? '—' : numberFormat.format(currentTrend.revenue) }}</strong></v-card></v-col>
+          <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>DOANH THU LŨY KẾ</small><strong>{{ trendHasRevenue ? numberFormat.format(cumulativeRevenue) : '—' }}</strong></v-card></v-col>
+          <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>SỐ THUÊ BAO THÁNG</small><strong>{{ currentTrend?.subscribers == null ? '—' : numberFormat.format(currentTrend.subscribers) }}</strong></v-card></v-col>
+        </v-row>
+        <v-alert v-if="!trendHasData" class="mt-4" type="info" variant="tonal">Không có dữ liệu {{ selectedProcedureLabel }} từ đầu năm đến {{ monthLabel }}.</v-alert>
+        <template v-else>
+          <v-card class="chart-card trend-chart-card" elevation="0"><v-card-title><strong>Doanh thu và số thuê bao {{ selectedProcedureLabel }}</strong><span>Cột thể hiện doanh thu và thuê bao theo tháng; đường thể hiện xu hướng doanh thu · {{ monthLabel }}</span></v-card-title><v-card-text><VChart class="chart" :option="trendOption" autoresize /></v-card-text></v-card>
+          <v-card class="table-card trend-table-card" elevation="0">
+            <v-card-title><div><strong>Chi tiết {{ selectedProcedureLabel }} theo tháng</strong><span>Doanh thu, số thuê bao và tổng doanh thu lũy kế đến {{ monthLabel }}</span></div></v-card-title>
+            <v-data-table
+              :headers="[{ title: 'Tháng', key: 'month', fixed: 'start', width: 190 }, { title: 'Doanh thu', key: 'revenue', align: 'end' }, { title: 'Số thuê bao', key: 'subscribers', align: 'end' }, { title: 'Tổng doanh thu lũy kế', key: 'totalRevenue', align: 'end' }]"
+              :items="trendTableRows"
+              :items-per-page="12"
+              hide-default-footer
+              density="comfortable"
+              hover
+              class="kpi-table"
+            >
+              <template #item.month="{ value }">Tháng {{ Number(value.slice(5)) }}/{{ value.slice(0, 4) }}</template>
+              <template #item.revenue="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
+              <template #item.subscribers="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
+              <template #item.totalRevenue="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
+            </v-data-table>
+          </v-card>
+        </template>
+      </template>
     </template>
   </v-container>
 </template>
 
 <style scoped>
 .kpi-page{width:min(1500px,calc(100% - 40px));margin:0 auto;padding:28px 0 60px}.page-head{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:22px}.eyebrow{color:rgb(var(--v-theme-primary));font-size:11px;font-weight:800;letter-spacing:1.2px}.page-head h1{margin:5px 0;color:rgb(var(--v-theme-on-background));font-size:28px}.page-head p{margin:0;color:rgba(var(--v-theme-on-background),.62)}.filter-card,.summary-card,.chart-card,.table-card{border:0;border-radius:12px;background:rgb(var(--v-theme-surface));box-shadow:0 4px 18px rgba(29,61,83,.08)!important}.filter-row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}.filter-row :deep(.v-input){max-width:280px}.summary-row,.chart-row{margin-top:8px}.chart-filter{margin-top:16px}.chart-filter :deep(.v-card-text){padding:14px 18px}.chart-filter-label{margin-bottom:12px;color:rgba(var(--v-theme-on-surface),.65);font-size:12px;font-weight:700}.chart-filter-grid{display:flex;flex-wrap:nowrap;gap:10px;overflow-x:auto;padding-bottom:3px;scrollbar-width:thin;scrollbar-color:rgba(var(--v-theme-primary),.3) transparent}.filter-chip{flex:0 0 auto;width:auto;height:auto!important;min-height:42px!important;margin:0!important;padding:7px 14px!important;border-radius:12px!important;justify-content:center;white-space:nowrap!important;text-align:center}.filter-chip :deep(.v-chip__content){white-space:nowrap;text-align:center;line-height:1.3}.summary-card{height:100%;padding:18px 20px}.summary-card small,.summary-card strong{display:block}.summary-card small{color:rgba(var(--v-theme-on-surface),.58);font-size:11px;font-weight:700;letter-spacing:.5px}.summary-card strong{margin-top:8px;color:rgb(var(--v-theme-primary));font-size:24px}.chart-card{height:100%;overflow:hidden}.chart-card :deep(.v-card-title),.table-card :deep(.v-card-title){padding:19px 21px 9px;white-space:normal}.chart-card :deep(.v-card-title strong),.chart-card :deep(.v-card-title span),.table-card :deep(.v-card-title strong),.table-card :deep(.v-card-title span){display:block}.chart-card :deep(.v-card-title strong),.table-card :deep(.v-card-title strong){font-size:16px}.chart-card :deep(.v-card-title span),.table-card :deep(.v-card-title span){margin-top:5px;color:rgba(var(--v-theme-on-surface),.56);font-size:12px;font-weight:400}.chart-card :deep(.v-card-text){padding:0 12px 12px}.chart{height:360px}.table-card{height:100%;overflow:hidden}.kpi-table :deep(.v-table__wrapper){scrollbar-width:thin;scrollbar-color:rgba(var(--v-theme-primary),.32) transparent}.kpi-table :deep(table){border-collapse:separate;border-spacing:0}.kpi-table :deep(th){min-width:112px!important;background:color-mix(in srgb,rgb(var(--v-theme-primary)) 7%,rgb(var(--v-theme-surface)))!important;color:rgb(var(--v-theme-primary))!important;font-size:12px!important;font-weight:700!important;white-space:nowrap;z-index:2!important}.kpi-table :deep(th:first-child){position:sticky;left:0;z-index:5!important;min-width:190px!important;background:color-mix(in srgb,rgb(var(--v-theme-primary)) 7%,rgb(var(--v-theme-surface)))!important;box-shadow:2px 0 4px rgba(29,61,83,.08)}.kpi-table :deep(td){min-width:112px;border-bottom-color:rgba(var(--v-border-color),.1)!important;font-size:12px;white-space:nowrap}.kpi-table :deep(td:first-child){position:sticky;left:0;z-index:2;min-width:190px;font-weight:600;background:rgb(var(--v-theme-surface));box-shadow:2px 0 4px rgba(29,61,83,.06)}.kpi-table :deep(tbody tr:nth-child(even) td:first-child){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 2.2%,rgb(var(--v-theme-surface)))}.kpi-table :deep(tbody tr:hover td:first-child){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 6.5%,rgb(var(--v-theme-surface)))!important}.kpi-table :deep(tbody tr:nth-child(even)){background:rgba(var(--v-theme-primary),.022)}.kpi-table :deep(tbody tr:hover){background:rgba(var(--v-theme-primary),.065)!important}.kpi-table :deep(.v-data-table-footer){border-top:1px solid rgba(var(--v-border-color),.1);background:color-mix(in srgb,rgb(var(--v-theme-primary)) 3%,rgb(var(--v-theme-surface)))}@media(max-width:600px){.kpi-page{width:calc(100% - 24px)}.page-head{align-items:flex-start;flex-direction:column}.filter-row{align-items:stretch;flex-direction:column}.filter-row :deep(.v-input){max-width:none}}
-.mode-toggle{display:flex;align-items:center;gap:8px;margin-left:auto;padding:0;color:rgb(var(--v-theme-primary));font-size:13px;font-weight:600;white-space:nowrap}.mode-toggle :deep(.v-input){flex:0 0 auto;width:42px;max-width:none;margin:0}.mode-toggle :deep(.v-selection-control){min-height:30px}.mode-toggle :deep(.v-switch__track){opacity:.25}.mode-toggle :deep(.v-switch__thumb){box-shadow:0 1px 4px rgba(20,50,70,.2)}@media(max-width:600px){.mode-toggle{margin-left:0;align-self:flex-end}}</style>
+.mode-toggle{display:flex;align-items:center;gap:8px;margin-left:auto;padding:0;color:rgb(var(--v-theme-primary));font-size:13px;font-weight:600;white-space:nowrap}.mode-toggle :deep(.v-input){flex:0 0 auto;width:42px;max-width:none;margin:0}.mode-toggle :deep(.v-selection-control){min-height:30px}.mode-toggle :deep(.v-switch__track){opacity:.25}.mode-toggle :deep(.v-switch__thumb){box-shadow:0 1px 4px rgba(20,50,70,.2)}.trend-chart-card,.trend-table-card{margin-top:20px}@media(max-width:600px){.mode-toggle{margin-left:0;align-self:flex-end}}
+</style>
