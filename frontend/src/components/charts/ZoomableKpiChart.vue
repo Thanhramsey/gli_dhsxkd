@@ -3,10 +3,10 @@ import { computed, ref, watch } from 'vue'
 import type { EChartsOption } from 'echarts'
 import VChart from 'vue-echarts'
 
-const props = defineProps<{ option: Record<string, unknown>; axis: 'x' | 'y'; count: number; anchor?: 'center' | 'end' }>()
+const props = defineProps<{ option: Record<string, unknown>; axis: 'x' | 'y'; count: number; anchor?: 'center' | 'end' | 'start' }>()
 const chart = ref<InstanceType<typeof VChart> | null>(null)
 const range = ref({ start: 0, end: 100 })
-const minWidth = computed(() => props.anchor === 'end' ? 20 : Math.min(100, 200 / Math.max(props.count, 1)))
+const minWidth = computed(() => props.anchor === 'end' || props.anchor === 'start' ? 20 : Math.min(100, 200 / Math.max(props.count, 1)))
 const canZoomIn = computed(() => range.value.end - range.value.start > minWidth.value + 0.1)
 const canZoomOut = computed(() => range.value.start > 0.1 || range.value.end < 99.9)
 const chartOption = computed<EChartsOption>(() => ({
@@ -30,7 +30,9 @@ function zoom(inward: boolean) {
     : Math.min(100, width / 0.7)
   const start = props.anchor === 'end'
     ? Math.max(0, range.value.end - nextWidth)
-    : Math.min(Math.max((range.value.start + range.value.end - nextWidth) / 2, 0), 100 - nextWidth)
+    : props.anchor === 'start'
+      ? range.value.start
+      : Math.min(Math.max((range.value.start + range.value.end - nextWidth) / 2, 0), 100 - nextWidth)
   range.value = { start, end: start + nextWidth }
 }
 
@@ -39,7 +41,7 @@ function syncRange() {
   if (zoom?.start != null && zoom.end != null) range.value = { start: zoom.start, end: zoom.end }
 }
 
-watch(() => props.count, () => { range.value = { start: 0, end: 100 } })
+watch(() => [props.count, props.anchor], () => { range.value = { start: 0, end: 100 } })
 </script>
 
 <template>

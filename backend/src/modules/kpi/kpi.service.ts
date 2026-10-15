@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import oracledb from 'oracledb';
 import { OracleService } from '../../database/oracle.service.js';
 import { KpiQueryDto } from './kpi-query.dto.js';
+import { KpiPscQueryDto } from './kpi-psc-query.dto.js';
 import { KpiTrendQueryDto } from './kpi-trend-query.dto.js';
 
 const PACKAGE_NAME = 'NBH_CDS_NEW.MA_KPI_GLI_TONG';
@@ -21,6 +22,18 @@ export interface KpiTrendRow {
   month: string;
   subscribers: number | null;
   revenue: number | null;
+}
+
+export interface KpiPscRow {
+  unitCode: string;
+  unitName: string;
+  monthlyNew: number | null;
+  monthlyPsc: number | null;
+  cumulativeNew: number | null;
+  cumulativePsc: number | null;
+  cumulativeNetGrowth: number | null;
+  cumulativeStopped: number | null;
+  cumulativeStopRate: number | null;
 }
 
 @Injectable()
@@ -87,6 +100,40 @@ export class KpiService {
           revenue: number(row?.[`DOANH_THU_${monthText}01`]),
         };
       }),
+    };
+  }
+
+  async psc(input: KpiPscQueryDto): Promise<{ month: string; rows: KpiPscRow[] }> {
+    const [year, month] = input.month.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const monthText = String(month).padStart(2, '0');
+    const result = await this.oracleService.executeProcedure(PACKAGE_NAME, input.procedure, {
+      P_TUNGAY: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: `01/${monthText}/${year}` },
+      P_DENNGAY: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: `${String(lastDay).padStart(2, '0')}/${monthText}/${year}` },
+      P_RESULT: { dir: oracledb.BIND_OUT, type: oracledb.CURSOR },
+    });
+    const rawRows = result.outBinds?.P_RESULT;
+    const number = (value: unknown): number | null => {
+      if (value == null) return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+      month: input.month,
+      rows: Array.isArray(rawRows) ? rawRows.map((value) => {
+        const row = value as Record<string, unknown>;
+        return {
+          unitCode: String(row.MA_DV ?? '').trim(),
+          unitName: String(row.TEN_DV ?? '').trim(),
+          monthlyNew: number(row.PTM_THANG_BC),
+          monthlyPsc: number(row.PSC_THANG_BC),
+          cumulativeNew: number(row.PTM_LUY_KE),
+          cumulativePsc: number(row.PSC_LUY_KE),
+          cumulativeNetGrowth: number(row.TB_THUC_TANG_LK),
+          cumulativeStopped: number(row.NGUNG_PSC_LUY_KE),
+          cumulativeStopRate: number(row.TYLE_NGUNG_PSC_LK),
+        };
+      }) : [],
     };
   }
 

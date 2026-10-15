@@ -3,18 +3,11 @@ CREATE OR REPLACE PACKAGE BODY NBH_CDS_NEW.MA_KPI_GLI_TONG AS
     ------------------------------------------------------------------
     -- 1. TY TRONG DOANH THU CAC DICH VU VT TRONG TAM
     ------------------------------------------------------------------
-    PROCEDURE TONG_HOP_KPI(
-        P_TUNGAY  IN VARCHAR2,
-        P_DENNGAY IN VARCHAR2,
-        P_RESULT  OUT SYS_REFCURSOR
-    )
+    PROCEDURE TONG_HOP_KPI(P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
     IS
         V_THANG VARCHAR2(20);
     BEGIN
-        V_THANG := TO_CHAR(
-            TO_DATE(P_TUNGAY, 'DD/MM/YYYY'),
-            'YYYYMM'
-        );
+        V_THANG := TO_CHAR(TO_DATE(P_TUNGAY, 'DD/MM/YYYY'),'YYYYMM');
 
         OPEN P_RESULT FOR
             SELECT A.TEN_KPI,
@@ -23,17 +16,8 @@ CREATE OR REPLACE PACKAGE BODY NBH_CDS_NEW.MA_KPI_GLI_TONG AS
                    SUM(B.THUCHIEN_THANG) AS THUCHIEN_THANG,
                    SUM(B.THUCHIEN_THANG_LK) AS THUCHIEN_THANG_LK,
 
-                   ROUND(
-                       SUM(B.THUCHIEN_THANG)
-                       / NULLIF(SUM(B.KEHOACH_THANG), 0) * 100,
-                       2
-                   ) AS KETQUA_THANG,
-
-                   ROUND(
-                       SUM(B.THUCHIEN_THANG_LK)
-                       / NULLIF(SUM(B.KEHOACH_THANG_LK), 0) * 100,
-                       2
-                   ) AS KETQUA_LK_THANG
+                   ROUND(SUM(B.THUCHIEN_THANG)/ NULLIF(SUM(B.KEHOACH_THANG), 0) * 100,2) AS KETQUA_THANG,
+                   ROUND(SUM(B.THUCHIEN_THANG_LK)/ NULLIF(SUM(B.KEHOACH_THANG_LK), 0) * 100,2) AS KETQUA_LK_THANG
 
             FROM GLI_DM_KPI A
             JOIN GLI_KQ_KPI_TONG B
@@ -481,4 +465,479 @@ BEGIN
 
 END TONG_HOP_KPI_VINA_TS;
 
+----TYLE_NGUNG_PSC FIBER
+PROCEDURE TYLE_NGUNG_PSC_FIBER (P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
+IS
+    V_THANG VARCHAR2(20);
+BEGIN
+    /* 1. Xac dinh thang bao cao */
+    V_THANG := TO_CHAR(TRUNC(TO_DATE(P_TUNGAY, 'DD/MM/YYYY'),'MM'),'YYYYMM');
+
+    OPEN P_RESULT FOR
+    WITH
+    /* 2. Tham so bao cao: tu dong theo nam */
+    THAM_SO AS (
+        SELECT TRUNC(TO_DATE(V_THANG, 'YYYYMM'),'YYYY') AS THANG_BD,
+            TRUNC(TO_DATE(V_THANG, 'YYYYMM'),'MM') AS THANG_BC,
+            ADD_MONTHS( TRUNC(TO_DATE(V_THANG, 'YYYYMM'),'YYYY'),-1) AS THANG_GOC
+        FROM DUAL),
+
+    /* 3. Danh sach thue bao va don vi */
+    DS_DONVI AS (
+        SELECT DISTINCT
+               PHANVUNG_ID,
+               THUEBAO_ID,
+               MA_DV,
+               TEN_DV
+        FROM GLI_THUEBAO_NVKT
+    ),
+
+    /* 4. Danh sach don vi */
+    DONVI AS (
+        SELECT MA_DV,
+               MAX(TEN_DV) AS TEN_DV
+        FROM DS_DONVI
+        WHERE MA_DV LIKE '237.3%'
+        GROUP BY MA_DV
+    ),
+
+    /* 5. Sinh thang tu thang goc den thang bao cao */
+    THANG AS (
+        SELECT ADD_MONTHS(
+                   S.THANG_GOC,
+                   LEVEL - 1
+               ) AS NGAY_THANG
+        FROM THAM_SO S
+        CONNECT BY LEVEL <=
+                   MONTHS_BETWEEN(
+                       S.THANG_BC,
+                       S.THANG_GOC
+                   ) + 1
+    ),
+
+    /* 6. PTM FIBER theo don vi va thang */
+    PTM_THANG AS (
+        SELECT D.MA_DV,
+               TRUNC(P.NGAY_SD, 'MM') AS NGAY_THANG,
+               COUNT(DISTINCT P.THUEBAO_ID) AS PTM
+        FROM GLI_TB_PTM P
+        JOIN DS_DONVI D
+          ON D.PHANVUNG_ID = P.PHANVUNG_ID
+         AND D.THUEBAO_ID = P.THUEBAO_ID
+        CROSS JOIN THAM_SO S
+        WHERE P.NGAY_SD >= S.THANG_BD
+          AND P.NGAY_SD < ADD_MONTHS(S.THANG_BC, 1)
+          AND EXISTS (
+              SELECT 1
+              FROM V_CT_NO_BCSS A
+              WHERE A.PHANVUNG_ID = P.PHANVUNG_ID
+                AND A.THUEBAO_ID = P.THUEBAO_ID
+                AND A.LOAITB_ID = 58
+          )
+        GROUP BY D.MA_DV,
+                 TRUNC(P.NGAY_SD, 'MM')
+    ),
+
+    /* 7. Danh sach thue bao co PSC FIBER */
+    PSC_TB AS (
+        SELECT DISTINCT
+               A.KY_CUOC,
+               A.PHANVUNG_ID,
+               A.THUEBAO_ID
+        FROM V_CT_NO_BCSS A
+        CROSS JOIN THAM_SO S
+        WHERE A.LOAITB_ID = 58
+          AND A.KHOANMUCTT_ID NOT IN (
+              452, 3427, 3428, 3429, 3430
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM VI_KHOANMUC_TT_TRATRUOC X
+              WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID
+          )
+          AND A.KY_CUOC BETWEEN TO_NUMBER(
+                  TO_CHAR(S.THANG_GOC, 'YYYYMMDD')
+              )
+              AND TO_NUMBER(
+                  TO_CHAR(S.THANG_BC, 'YYYYMMDD')
+              )
+    ),
+
+    /* 8. Dem PSC theo don vi va thang */
+    PSC_THANG AS (
+        SELECT D.MA_DV,TRUNC(TO_DATE(TO_CHAR(P.KY_CUOC),'YYYYMMDD'),'MM') AS NGAY_THANG,
+               COUNT(DISTINCT P.THUEBAO_ID) AS PSC
+        FROM PSC_TB P
+        JOIN DS_DONVI D
+          ON D.PHANVUNG_ID = P.PHANVUNG_ID
+         AND D.THUEBAO_ID = P.THUEBAO_ID
+        GROUP BY D.MA_DV,
+                 TRUNC(TO_DATE(TO_CHAR(P.KY_CUOC),'YYYYMMDD'),'MM')),
+
+    /* 9. Tao du thang cho tung don vi */
+    KPI_THANG AS (
+        SELECT V.MA_DV,
+               V.TEN_DV,
+               M.NGAY_THANG,
+               NVL(P.PTM, 0) AS PTM,
+               NVL(S.PSC, 0) AS PSC
+        FROM DONVI V
+        CROSS JOIN THANG M
+        LEFT JOIN PTM_THANG P
+          ON P.MA_DV = V.MA_DV
+         AND P.NGAY_THANG = M.NGAY_THANG
+        LEFT JOIN PSC_THANG S
+          ON S.MA_DV = V.MA_DV
+         AND S.NGAY_THANG = M.NGAY_THANG
+    ),
+
+    /* 10. Lay PSC thang truoc */
+    TINH_PSC AS (
+        SELECT K.*,
+               LAG(PSC, 1, 0) OVER (PARTITION BY MA_DV ORDER BY NGAY_THANG ) AS PSC_T1
+        FROM KPI_THANG K
+    ),
+
+    /* 11. Tinh PTM, PSC luy ke va thuc tang thang */
+    LUY_KE AS (
+        SELECT T.*,
+
+               SUM(CASE WHEN NGAY_THANG >=(SELECT THANG_BD FROM THAM_SO) THEN PTM ELSE 0 END ) OVER ( PARTITION BY MA_DV ORDER BY NGAY_THANG ROWS BETWEEN UNBOUNDED PRECEDING
+                    AND CURRENT ROW) AS PTM_LUY_KE,
+
+               SUM(CASE WHEN NGAY_THANG >=(SELECT THANG_BD FROM THAM_SO) THEN PSC ELSE 0 END ) OVER ( PARTITION BY MA_DV ORDER BY NGAY_THANG ROWS BETWEEN UNBOUNDED PRECEDING
+                    AND CURRENT ROW) AS PSC_LUY_KE,
+
+               PSC - PSC_T1 AS THUC_TANG_THANG
+
+        FROM TINH_PSC T
+    ),
+
+    /* 12. Tinh thuc tang luy ke */
+    THUC_TANG_LK AS (
+        SELECT L.*,
+               SUM( CASE WHEN NGAY_THANG >=(SELECT THANG_BD FROM THAM_SO)THEN THUC_TANG_THANG ELSE 0 END) OVER (PARTITION BY MA_DV ORDER BY NGAY_THANG ROWS BETWEEN UNBOUNDED PRECEDING
+                    AND CURRENT ROW) AS TB_THUC_TANG_LK
+        FROM LUY_KE L ),
+
+    /* 13. Tinh ngung PSC luy ke */
+    KET_QUA AS (
+        SELECT L.*,
+               PTM_LUY_KE - TB_THUC_TANG_LK
+                   AS NGUNG_PSC_LUY_KE
+        FROM THUC_TANG_LK L
+    ),
+
+    /* 14. Lay ket qua thang bao cao */
+    KQ_THANG_BC AS (
+        SELECT K.MA_DV,
+               K.TEN_DV,
+               K.NGAY_THANG,
+
+               K.PTM_LUY_KE,
+               K.PSC_LUY_KE,
+
+               /* PTM rieng cua thang bao cao */
+               K.PTM AS PTM_THANG_BC,
+
+               /* PSC rieng cua thang bao cao */
+               K.PSC AS PSC_THANG_BC,
+
+               K.TB_THUC_TANG_LK,
+               K.NGUNG_PSC_LUY_KE
+        FROM KET_QUA K
+        CROSS JOIN THAM_SO S
+        WHERE K.NGAY_THANG = S.THANG_BC
+          AND K.MA_DV LIKE '237.3%'
+    )
+
+    /* 15. Ket qua chi tiet va dong tong cong */
+    SELECT
+           CASE
+               WHEN GROUPING(K.MA_DV) = 1
+               THEN 'TONG'
+               ELSE K.MA_DV
+           END AS MA_DV,
+
+           CASE
+               WHEN GROUPING(K.MA_DV) = 1
+               THEN 'TONG CONG'
+               ELSE MAX(SUBSTR(K.TEN_DV, 22))
+           END AS TEN_DV,
+
+           'FIBER' AS TEN_LOAI,
+
+           TO_CHAR(
+               MAX(K.NGAY_THANG),
+               'MM/YYYY'
+           ) AS THANG,
+
+           SUM(K.PTM_LUY_KE) AS PTM_LUY_KE,
+
+           SUM(K.PSC_LUY_KE) AS PSC_LUY_KE,
+
+           SUM(K.PTM_THANG_BC) AS PTM_THANG_BC,
+
+           SUM(K.PSC_THANG_BC) AS PSC_THANG_BC,
+
+           SUM(K.TB_THUC_TANG_LK)
+               AS TB_THUC_TANG_LK,
+
+           SUM(K.NGUNG_PSC_LUY_KE)
+               AS NGUNG_PSC_LUY_KE,
+
+           ROUND(
+               SUM(K.NGUNG_PSC_LUY_KE)
+               / NULLIF(SUM(K.PSC_LUY_KE), 0) * 100,
+               2
+           ) AS TYLE_NGUNG_PSC_LK
+
+    FROM KQ_THANG_BC K
+    GROUP BY GROUPING SETS (
+        (K.MA_DV),
+        ()
+    )
+    ORDER BY
+        GROUPING(K.MA_DV),
+        K.MA_DV;
+
+END TYLE_NGUNG_PSC_FIBER;
+
+----TYLE_NGUNG_PSC MYTV
+PROCEDURE TYLE_NGUNG_PSC_MYTV (P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
+IS
+    V_THANG VARCHAR2(20);
+BEGIN
+    /* 1. Xac dinh thang bao cao */
+    V_THANG := TO_CHAR(TRUNC(TO_DATE(P_TUNGAY, 'DD/MM/YYYY'),'MM'),'YYYYMM');
+
+    OPEN P_RESULT FOR
+    WITH
+    /* 2. Tham so bao cao: tu dong theo nam */
+    THAM_SO AS (
+        SELECT TRUNC(TO_DATE(V_THANG, 'YYYYMM'),'YYYY') AS THANG_BD,
+            TRUNC(TO_DATE(V_THANG, 'YYYYMM'),'MM') AS THANG_BC,
+            ADD_MONTHS( TRUNC(TO_DATE(V_THANG, 'YYYYMM'),'YYYY'),-1) AS THANG_GOC
+        FROM DUAL),
+
+    /* 3. Danh sach thue bao va don vi */
+    DS_DONVI AS (
+        SELECT DISTINCT
+               PHANVUNG_ID,
+               THUEBAO_ID,
+               MA_DV,
+               TEN_DV
+        FROM GLI_THUEBAO_NVKT
+    ),
+
+    /* 4. Danh sach don vi */
+    DONVI AS (
+        SELECT MA_DV,
+               MAX(TEN_DV) AS TEN_DV
+        FROM DS_DONVI
+        WHERE MA_DV LIKE '237.3%'
+        GROUP BY MA_DV
+    ),
+
+    /* 5. Sinh thang tu thang goc den thang bao cao */
+    THANG AS (
+        SELECT ADD_MONTHS(
+                   S.THANG_GOC,
+                   LEVEL - 1
+               ) AS NGAY_THANG
+        FROM THAM_SO S
+        CONNECT BY LEVEL <=
+                   MONTHS_BETWEEN(
+                       S.THANG_BC,
+                       S.THANG_GOC
+                   ) + 1
+    ),
+
+    /* 6. PTM FIBER theo don vi va thang */
+    PTM_THANG AS (
+        SELECT D.MA_DV,
+               TRUNC(P.NGAY_SD, 'MM') AS NGAY_THANG,
+               COUNT(DISTINCT P.THUEBAO_ID) AS PTM
+        FROM GLI_TB_PTM P
+        JOIN DS_DONVI D
+          ON D.PHANVUNG_ID = P.PHANVUNG_ID
+         AND D.THUEBAO_ID = P.THUEBAO_ID
+        CROSS JOIN THAM_SO S
+        WHERE P.NGAY_SD >= S.THANG_BD
+          AND P.NGAY_SD < ADD_MONTHS(S.THANG_BC, 1)
+          AND EXISTS (
+              SELECT 1
+              FROM V_CT_NO_BCSS A
+              WHERE A.PHANVUNG_ID = P.PHANVUNG_ID
+                AND A.THUEBAO_ID = P.THUEBAO_ID
+                AND A.LOAITB_ID = 58
+          )
+        GROUP BY D.MA_DV,
+                 TRUNC(P.NGAY_SD, 'MM')
+    ),
+
+    /* 7. Danh sach thue bao co PSC FIBER */
+    PSC_TB AS (
+        SELECT DISTINCT
+               A.KY_CUOC,
+               A.PHANVUNG_ID,
+               A.THUEBAO_ID
+        FROM V_CT_NO_BCSS A
+        CROSS JOIN THAM_SO S
+        WHERE A.LOAITB_ID = 61
+          AND A.KHOANMUCTT_ID NOT IN (
+              452, 3427, 3428, 3429, 3430
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM VI_KHOANMUC_TT_TRATRUOC X
+              WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID
+          )
+          AND A.KY_CUOC BETWEEN TO_NUMBER(
+                  TO_CHAR(S.THANG_GOC, 'YYYYMMDD')
+              )
+              AND TO_NUMBER(
+                  TO_CHAR(S.THANG_BC, 'YYYYMMDD')
+              )
+    ),
+
+    /* 8. Dem PSC theo don vi va thang */
+    PSC_THANG AS (
+        SELECT D.MA_DV,TRUNC(TO_DATE(TO_CHAR(P.KY_CUOC),'YYYYMMDD'),'MM') AS NGAY_THANG,
+               COUNT(DISTINCT P.THUEBAO_ID) AS PSC
+        FROM PSC_TB P
+        JOIN DS_DONVI D
+          ON D.PHANVUNG_ID = P.PHANVUNG_ID
+         AND D.THUEBAO_ID = P.THUEBAO_ID
+        GROUP BY D.MA_DV,
+                 TRUNC(TO_DATE(TO_CHAR(P.KY_CUOC),'YYYYMMDD'),'MM')),
+
+    /* 9. Tao du thang cho tung don vi */
+    KPI_THANG AS (
+        SELECT V.MA_DV,
+               V.TEN_DV,
+               M.NGAY_THANG,
+               NVL(P.PTM, 0) AS PTM,
+               NVL(S.PSC, 0) AS PSC
+        FROM DONVI V
+        CROSS JOIN THANG M
+        LEFT JOIN PTM_THANG P
+          ON P.MA_DV = V.MA_DV
+         AND P.NGAY_THANG = M.NGAY_THANG
+        LEFT JOIN PSC_THANG S
+          ON S.MA_DV = V.MA_DV
+         AND S.NGAY_THANG = M.NGAY_THANG
+    ),
+
+    /* 10. Lay PSC thang truoc */
+    TINH_PSC AS (
+        SELECT K.*,
+               LAG(PSC, 1, 0) OVER (PARTITION BY MA_DV ORDER BY NGAY_THANG ) AS PSC_T1
+        FROM KPI_THANG K
+    ),
+
+    /* 11. Tinh PTM, PSC luy ke va thuc tang thang */
+    LUY_KE AS (
+        SELECT T.*,
+
+               SUM(CASE WHEN NGAY_THANG >=(SELECT THANG_BD FROM THAM_SO) THEN PTM ELSE 0 END ) OVER ( PARTITION BY MA_DV ORDER BY NGAY_THANG ROWS BETWEEN UNBOUNDED PRECEDING
+                    AND CURRENT ROW) AS PTM_LUY_KE,
+
+               SUM(CASE WHEN NGAY_THANG >=(SELECT THANG_BD FROM THAM_SO) THEN PSC ELSE 0 END ) OVER ( PARTITION BY MA_DV ORDER BY NGAY_THANG ROWS BETWEEN UNBOUNDED PRECEDING
+                    AND CURRENT ROW) AS PSC_LUY_KE,
+
+               PSC - PSC_T1 AS THUC_TANG_THANG
+
+        FROM TINH_PSC T
+    ),
+
+    /* 12. Tinh thuc tang luy ke */
+    THUC_TANG_LK AS (
+        SELECT L.*,
+               SUM( CASE WHEN NGAY_THANG >=(SELECT THANG_BD FROM THAM_SO)THEN THUC_TANG_THANG ELSE 0 END) OVER (PARTITION BY MA_DV ORDER BY NGAY_THANG ROWS BETWEEN UNBOUNDED PRECEDING
+                    AND CURRENT ROW) AS TB_THUC_TANG_LK
+        FROM LUY_KE L ),
+
+    /* 13. Tinh ngung PSC luy ke */
+    KET_QUA AS (
+        SELECT L.*,
+               PTM_LUY_KE - TB_THUC_TANG_LK
+                   AS NGUNG_PSC_LUY_KE
+        FROM THUC_TANG_LK L
+    ),
+
+    /* 14. Lay ket qua thang bao cao */
+    KQ_THANG_BC AS (
+        SELECT K.MA_DV,
+               K.TEN_DV,
+               K.NGAY_THANG,
+
+               K.PTM_LUY_KE,
+               K.PSC_LUY_KE,
+
+               /* PTM rieng cua thang bao cao */
+               K.PTM AS PTM_THANG_BC,
+
+               /* PSC rieng cua thang bao cao */
+               K.PSC AS PSC_THANG_BC,
+
+               K.TB_THUC_TANG_LK,
+               K.NGUNG_PSC_LUY_KE
+        FROM KET_QUA K
+        CROSS JOIN THAM_SO S
+        WHERE K.NGAY_THANG = S.THANG_BC
+          AND K.MA_DV LIKE '237.3%'
+    )
+
+    /* 15. Ket qua chi tiet va dong tong cong */
+    SELECT
+           CASE
+               WHEN GROUPING(K.MA_DV) = 1
+               THEN 'TONG'
+               ELSE K.MA_DV
+           END AS MA_DV,
+
+           CASE
+               WHEN GROUPING(K.MA_DV) = 1
+               THEN 'TONG CONG'
+               ELSE MAX(SUBSTR(K.TEN_DV, 22))
+           END AS TEN_DV,
+
+           'FIBER' AS TEN_LOAI,
+
+           TO_CHAR(
+               MAX(K.NGAY_THANG),
+               'MM/YYYY'
+           ) AS THANG,
+
+           SUM(K.PTM_LUY_KE) AS PTM_LUY_KE,
+
+           SUM(K.PSC_LUY_KE) AS PSC_LUY_KE,
+
+           SUM(K.PTM_THANG_BC) AS PTM_THANG_BC,
+
+           SUM(K.PSC_THANG_BC) AS PSC_THANG_BC,
+
+           SUM(K.TB_THUC_TANG_LK)
+               AS TB_THUC_TANG_LK,
+
+           SUM(K.NGUNG_PSC_LUY_KE)
+               AS NGUNG_PSC_LUY_KE,
+
+           ROUND(
+               SUM(K.NGUNG_PSC_LUY_KE)
+               / NULLIF(SUM(K.PSC_LUY_KE), 0) * 100,
+               2
+           ) AS TYLE_NGUNG_PSC_LK
+
+    FROM KQ_THANG_BC K
+    GROUP BY GROUPING SETS (
+        (K.MA_DV),
+        ()
+    )
+    ORDER BY
+        GROUPING(K.MA_DV),
+        K.MA_DV;
+
+END TYLE_NGUNG_PSC_MYTV;
 END MA_KPI_GLI_TONG;

@@ -31,3 +31,22 @@ export interface KpiTrend {
   month: string
   rows: KpiTrendRow[]
 }
+
+export type KpiPscProcedure = 'TYLE_NGUNG_PSC_FIBER' | 'TYLE_NGUNG_PSC_MYTV'
+
+export interface KpiPscRow {
+  unitCode: string
+  unitName: string
+  monthlyNew: number | null
+  monthlyPsc: number | null
+  cumulativeNew: number | null
+  cumulativePsc: number | null
+  cumulativeNetGrowth: number | null
+  cumulativeStopped: number | null
+  cumulativeStopRate: number | null
+}
+
+export interface KpiPsc {
+  month: string
+  rows: KpiPscRow[]
+}

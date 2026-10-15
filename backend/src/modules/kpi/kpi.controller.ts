@@ -2,6 +2,7 @@ import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { KpiQueryDto } from './kpi-query.dto.js';
+import { KpiPscQueryDto } from './kpi-psc-query.dto.js';
 import { KpiTrendQueryDto } from './kpi-trend-query.dto.js';
 import { KpiService } from './kpi.service.js';
 
@@ -28,5 +29,11 @@ export class KpiController {
   @ApiOperation({ summary: 'Doanh thu và thuê bao theo tháng của đầu KPI' })
   trend(@Body() input: KpiTrendQueryDto) {
     return this.service.trend(input);
+  }
+
+  @Post('psc')
+  @ApiOperation({ summary: 'Tỷ lệ ngừng phát sinh cước Fiber/MyTV theo đơn vị' })
+  psc(@Body() input: KpiPscQueryDto) {
+    return this.service.psc(input);
   }
 }
