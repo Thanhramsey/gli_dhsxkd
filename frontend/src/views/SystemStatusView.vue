@@ -2,9 +2,10 @@
 import { computed, onMounted } from 'vue'
 import ServiceStatus from '../components/widgets/ServiceStatus.vue'
 import { useSystemStore } from '../stores/system.store'
+import { http } from '../api/http'
 
 const systemStore = useSystemStore()
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3000'
+const apiBaseUrl = http.defaults.baseURL
 
 const formattedDatabaseTime = computed(() =>
   systemStore.databaseTime

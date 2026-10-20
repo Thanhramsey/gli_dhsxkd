@@ -3,7 +3,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import ZoomableKpiChart from '../components/charts/ZoomableKpiChart.vue'
 import { kpiApi } from '../api/kpi.api'
 import { getAuthErrorMessage } from '../api/auth.api'
-import type { KpiPscProcedure, KpiPscRow, KpiRow, KpiTrendProcedure, KpiTrendRow } from '../types/kpi'
+import type { KpiMaintenanceRow, KpiPscProcedure, KpiPscRow, KpiRow, KpiTrendProcedure, KpiTrendRow } from '../types/kpi'
 import '../plugins/echarts'
 
 const now = new Date()
@@ -12,21 +12,25 @@ const year = ref(now.getFullYear())
 const monthOptions = Array.from({ length: 12 }, (_, index) => ({ title: `Tháng ${index + 1}`, value: index + 1 }))
 const yearOptions = Array.from({ length: 8 }, (_, index) => now.getFullYear() + 1 - index)
 const month = computed(() => `${year.value}-${String(monthNumber.value).padStart(2, '0')}`)
-const procedureOptions: { title: string; value: 'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure }[] = [
+type KpiMaintenanceProcedure = 'BC_DT_DUY_TRI_FIBER_MYTV'
+const procedureOptions: { title: string; value: 'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure | KpiMaintenanceProcedure }[] = [
   { title: 'Tổng hợp KPI', value: 'TONG_HOP_KPI' },
   { title: 'BRCD (Fiber + Cố định)', value: 'TONG_HOP_KPI_BRCD' },
   { title: 'MyTV', value: 'TONG_HOP_KPI_MYTV' },
-  { title: 'Camera / Mesh', value: 'TONG_HOP_KPI_CAM_MESH' },
+  { title: 'Camera', value: 'TONG_HOP_KPI_CAM' },
+  { title: 'Mesh', value: 'TONG_HOP_KPI_MESH' },
   { title: 'TSL', value: 'TONG_HOP_KPI_TSL' },
   { title: 'CNTT phân bổ', value: 'TONG_HOP_KPI_CNTT' },
   { title: 'Vina trả sau', value: 'TONG_HOP_KPI_VINA_TS' },
   { title: 'Tỷ lệ ngừng PSC Fiber', value: 'TYLE_NGUNG_PSC_FIBER' },
   { title: 'Tỷ lệ ngừng PSC MyTV', value: 'TYLE_NGUNG_PSC_MYTV' },
+  { title: 'Doanh thu duy trì Fiber + MyTV', value: 'BC_DT_DUY_TRI_FIBER_MYTV' },
 ]
-const selectedProcedure = ref<'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure>('TONG_HOP_KPI')
+const selectedProcedure = ref<'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure | KpiMaintenanceProcedure>('TONG_HOP_KPI')
 const rows = ref<KpiRow[]>([])
 const trendRows = ref<KpiTrendRow[]>([])
 const pscRows = ref<KpiPscRow[]>([])
+const maintenanceRows = ref<KpiMaintenanceRow[]>([])
 const selectedKpiNames = ref<string[]>([])
 const cumulativeMode = ref(false)
 const chipColors = ['#d9efff', '#def5ec', '#fff0d6', '#eee5ff', '#ffe4e4', '#e4edff', '#e5f2d9']
@@ -39,6 +43,8 @@ const monthlySort = ref<SortDirection>('desc')
 const cumulativeRateSort = ref<SortDirection>('desc')
 const revenueSort = ref<SortDirection>('asc')
 const subscriberSort = ref<SortDirection>('asc')
+const selectedSnapshotMonth = ref<string | null>(null)
+const snapshotMonthlyView = ref<'value' | 'rate'>('value')
 const sortIcon = (direction: SortDirection) => direction === 'desc' ? 'mdi-sort-descending' : 'mdi-sort-ascending'
 const sortTitle = (direction: SortDirection, byMonth = false) => `Đang xếp ${direction === 'desc' ? 'giảm' : 'tăng'} dần theo ${byMonth ? 'tháng' : 'giá trị'}. Bấm để đảo chiều.`
 const toggleSort = (direction: SortDirection): SortDirection => direction === 'desc' ? 'asc' : 'desc'
@@ -66,10 +72,28 @@ const totalPlan = computed(() => rows.value.reduce((sum, row) => sum + (cumulati
 const completion = computed(() => totalPlan.value ? totalActual.value / totalPlan.value * 100 : null)
 const selectedProcedureLabel = computed(() => procedureOptions.find(option => option.value === selectedProcedure.value)?.title ?? '')
 const isPscProcedure = (procedure: string): procedure is KpiPscProcedure => procedure === 'TYLE_NGUNG_PSC_FIBER' || procedure === 'TYLE_NGUNG_PSC_MYTV'
+const isMaintenanceProcedure = (procedure: string): procedure is KpiMaintenanceProcedure => procedure === 'BC_DT_DUY_TRI_FIBER_MYTV'
+const snapshotKpiCodes: Readonly<Record<string, string | undefined>> = {
+  TONG_HOP_KPI_BRCD: 'F1.FIBER_C2',
+  TONG_HOP_KPI_MYTV: 'F1.MYTV_C2',
+  TONG_HOP_KPI_CAM: 'F1.CAM_C2',
+  TONG_HOP_KPI_MESH: 'F1.MESH_C2',
+  TONG_HOP_KPI_TSL: 'F1.DITT_C2',
+  TONG_HOP_KPI_CNTT: 'F4.1_C2',
+}
+const snapshotKpiCode = computed(() => snapshotKpiCodes[selectedProcedure.value] ?? '')
+const isSnapshotTrend = computed(() => Boolean(snapshotKpiCode.value))
+function isSnapshotProcedure(procedure: string): procedure is KpiTrendProcedure {
+  return Boolean(snapshotKpiCodes[procedure])
+}
 const pageDescription = computed(() => selectedProcedure.value === 'TONG_HOP_KPI'
   ? 'Kế hoạch và kết quả thực hiện theo từng chỉ tiêu trong'
   : isPscProcedure(selectedProcedure.value)
     ? 'Tỷ lệ ngừng phát sinh cước theo đơn vị trong'
+    : isMaintenanceProcedure(selectedProcedure.value)
+      ? 'Ước tính doanh thu duy trì Fiber và MyTV theo đơn vị, lũy kế đến'
+    : isSnapshotTrend.value
+      ? `Kế hoạch và doanh thu ${selectedProcedureLabel.value} theo từng tháng đến`
     : `Doanh thu và số thuê bao ${selectedProcedureLabel.value} từ đầu năm đến`)
 const pscTotal = computed(() => pscRows.value.find(row => row.unitCode === 'TONG'))
 const pscUnitRows = computed(() => pscRows.value.filter(row => row.unitCode !== 'TONG'))
@@ -100,12 +124,246 @@ const pscMonthlyMetricLabel = computed(() => pscMonthlyMetrics.find(metric => me
 const pscCumulativeMetricLabel = computed(() => pscCumulativeMetrics.find(metric => metric.value === pscCumulativeMetric.value)?.title ?? '')
 const pscMonthlyChartRows = computed(() => sortedPscRows(pscMonthlyMetric.value, pscMonthlySort.value))
 const pscCumulativeChartRows = computed(() => sortedPscRows(pscCumulativeMetric.value, pscCumulativeSort.value))
+const maintenanceRevenueSort = ref<SortDirection>('desc')
+const maintenanceRateSort = ref<SortDirection>('asc')
+const maintenanceSubscriberSort = ref<SortDirection>('desc')
+const maintenanceRevenueView = ref<'monthlyBase' | 'cumulativeBase' | 'stoppedRevenue' | 'canceledRevenue' | 'maintained'>('canceledRevenue')
+const maintenanceOtherView = ref<'subscribers' | 'stoppedSubscribers' | 'arpu'>('stoppedSubscribers')
+const selectedMaintenanceUnit = ref<string | null>(null)
+const selectedMaintenanceRow = computed(() => maintenanceRows.value.find(row => row.unitCode === selectedMaintenanceUnit.value) ?? null)
+type MaintenanceMetric = keyof Pick<KpiMaintenanceRow,
+  'baseRevenueFiber' | 'baseRevenueMyTv' | 'baseRevenue' |
+  'cumulativeBaseRevenueFiber' | 'cumulativeBaseRevenueMyTv' | 'cumulativeBaseRevenue' |
+  'stoppedFiberRevenue' | 'stoppedMyTvRevenue' | 'stoppedRevenue' |
+  'estimatedCanceledFiberRevenue' | 'estimatedCanceledMyTvRevenue' | 'estimatedCanceledRevenue' |
+  'maintainedRevenue' | 'fiberSubscribers' | 'mytvSubscribers' | 'subscribers' |
+  'stoppedFiberSubscribers' | 'stoppedMyTvSubscribers' | 'stoppedSubscribers' | 'arpuFiber' | 'arpuMyTv'>
+type MaintenanceChartMetric = { title: string; key: MaintenanceMetric; color: string }
+const maintenanceRevenueMetricSets: Record<typeof maintenanceRevenueView.value, MaintenanceChartMetric[]> = {
+  monthlyBase: [
+    { title: 'Fiber', key: 'baseRevenueFiber', color: '#0c8b8d' },
+    { title: 'MyTV', key: 'baseRevenueMyTv', color: '#3678c4' },
+  ],
+  cumulativeBase: [
+    { title: 'Fiber', key: 'cumulativeBaseRevenueFiber', color: '#0c8b8d' },
+    { title: 'MyTV', key: 'cumulativeBaseRevenueMyTv', color: '#3678c4' },
+  ],
+  stoppedRevenue: [
+    { title: 'Fiber', key: 'stoppedFiberRevenue', color: '#0c8b8d' },
+    { title: 'MyTV', key: 'stoppedMyTvRevenue', color: '#3678c4' },
+  ],
+  canceledRevenue: [
+    { title: 'Fiber', key: 'estimatedCanceledFiberRevenue', color: '#0c8b8d' },
+    { title: 'MyTV', key: 'estimatedCanceledMyTvRevenue', color: '#3678c4' },
+  ],
+  maintained: [{ title: 'Doanh thu duy trì ước tính', key: 'maintainedRevenue', color: '#0c8b8d' }],
+}
+const maintenanceOtherMetricSets: Record<typeof maintenanceOtherView.value, MaintenanceChartMetric[]> = {
+  subscribers: [
+    { title: 'Fiber', key: 'fiberSubscribers', color: '#0c8b8d' },
+    { title: 'MyTV', key: 'mytvSubscribers', color: '#3678c4' },
+  ],
+  stoppedSubscribers: [
+    { title: 'Fiber', key: 'stoppedFiberSubscribers', color: '#0c8b8d' },
+    { title: 'MyTV', key: 'stoppedMyTvSubscribers', color: '#3678c4' },
+  ],
+  arpu: [
+    { title: 'ARPU Fiber', key: 'arpuFiber', color: '#0c8b8d' },
+    { title: 'ARPU MyTV', key: 'arpuMyTv', color: '#3678c4' },
+  ],
+}
+const maintenanceRevenueViewOptions = [
+  { title: 'Doanh thu hủy ước tính', value: 'canceledRevenue' },
+  { title: 'Doanh thu duy trì ước tính', value: 'maintained' },
+  { title: 'Doanh thu tháng gốc', value: 'monthlyBase' },
+  { title: 'Doanh thu gốc tính theo số tháng', value: 'cumulativeBase' },
+  { title: 'Doanh thu trước khi ngừng PSC', value: 'stoppedRevenue' },
+] as const
+const maintenanceOtherViewOptions = [
+  { title: 'Thuê bao ngừng PSC', value: 'stoppedSubscribers' },
+  { title: 'Thuê bao tháng gốc', value: 'subscribers' },
+  { title: 'Doanh thu bình quân / thuê bao', value: 'arpu' },
+] as const
+function sortMaintenanceRows(metric: MaintenanceMetric | 'maintainedRate', direction: SortDirection) {
+  const factor = direction === 'asc' ? 1 : -1
+  return [...maintenanceRows.value].sort((a, b) => {
+    if (a[metric] == null && b[metric] == null) return a.unitName.localeCompare(b.unitName, 'vi')
+    if (a[metric] == null) return 1
+    if (b[metric] == null) return -1
+    return factor * (a[metric]! - b[metric]!) || a.unitName.localeCompare(b.unitName, 'vi')
+  })
+}
+const maintenanceRateRows = computed(() => sortMaintenanceRows('maintainedRate', maintenanceRateSort.value))
+function sumMaintenanceMetric(chartRows: KpiMaintenanceRow[], key: MaintenanceMetric): number | null {
+  if (!chartRows.length || chartRows.some(row => row[key] == null)) return null
+  return chartRows.reduce((sum, row) => sum + row[key]!, 0)
+}
+const maintenanceScopeRows = computed(() => selectedMaintenanceRow.value ? [selectedMaintenanceRow.value] : maintenanceRows.value)
+const maintenanceTotals = computed(() => ({
+  base: sumMaintenanceMetric(maintenanceScopeRows.value, 'cumulativeBaseRevenue'),
+  maintained: sumMaintenanceMetric(maintenanceScopeRows.value, 'maintainedRevenue'),
+  canceled: sumMaintenanceMetric(maintenanceScopeRows.value, 'estimatedCanceledRevenue'),
+  stoppedSubscribers: sumMaintenanceMetric(maintenanceScopeRows.value, 'stoppedSubscribers'),
+  canceledFiber: sumMaintenanceMetric(maintenanceScopeRows.value, 'estimatedCanceledFiberRevenue'),
+  canceledMyTv: sumMaintenanceMetric(maintenanceScopeRows.value, 'estimatedCanceledMyTvRevenue'),
+  stoppedFiber: sumMaintenanceMetric(maintenanceScopeRows.value, 'stoppedFiberSubscribers'),
+  stoppedMyTv: sumMaintenanceMetric(maintenanceScopeRows.value, 'stoppedMyTvSubscribers'),
+}))
+const maintenanceNetworkRate = computed(() => {
+  const base = sumMaintenanceMetric(maintenanceRows.value, 'cumulativeBaseRevenue')
+  const maintained = sumMaintenanceMetric(maintenanceRows.value, 'maintainedRevenue')
+  return base != null && base > 0 && maintained != null ? maintained / base * 100 : null
+})
+const maintenanceSelectedName = computed(() => selectedMaintenanceRow.value?.unitName || 'Toàn bộ đơn vị')
+const maintenanceRevenueTotalKeys: Record<typeof maintenanceRevenueView.value, MaintenanceMetric> = {
+  monthlyBase: 'baseRevenue', cumulativeBase: 'cumulativeBaseRevenue', stoppedRevenue: 'stoppedRevenue',
+  canceledRevenue: 'estimatedCanceledRevenue', maintained: 'maintainedRevenue',
+}
+const maintenanceOtherTotalKey = computed<MaintenanceMetric | null>(() => maintenanceOtherView.value === 'subscribers' ? 'subscribers' : maintenanceOtherView.value === 'stoppedSubscribers' ? 'stoppedSubscribers' : null)
+const maintenanceRevenueChartRows = computed(() => sortMaintenanceRows(maintenanceRevenueTotalKeys[maintenanceRevenueView.value], maintenanceRevenueSort.value))
+const maintenanceOtherChartRows = computed(() => sortMaintenanceRows(maintenanceOtherTotalKey.value ?? 'arpuFiber', maintenanceSubscriberSort.value))
+const maintenanceLowestUnit = computed(() => sortMaintenanceRows('maintainedRate', 'asc').find(row => row.maintainedRate != null))
+const maintenanceLargestLossUnit = computed(() => sortMaintenanceRows('estimatedCanceledRevenue', 'desc').find(row => row.estimatedCanceledRevenue != null))
+const maintenanceBelowNetwork = computed(() => maintenanceNetworkRate.value == null ? 0 : maintenanceRows.value.filter(row => row.maintainedRate != null && row.maintainedRate < maintenanceNetworkRate.value!).length)
+const maintenanceBaseMonth = computed(() => `12/${year.value - 1}`)
+const maintenanceRevenueCaption = computed(() => {
+  if (maintenanceRevenueView.value === 'monthlyBase') return `Doanh thu tháng gốc ${maintenanceBaseMonth.value}; không phải doanh thu tháng báo cáo`
+  if (maintenanceRevenueView.value === 'cumulativeBase') return `Doanh thu tháng gốc × ${monthNumber.value} tháng báo cáo`
+  if (maintenanceRevenueView.value === 'stoppedRevenue') return 'Tổng doanh thu kỳ cước trước khi thuê bao ngừng PSC; khác doanh thu hủy ước tính'
+  if (maintenanceRevenueView.value === 'maintained') return `Doanh thu tháng gốc tính cho ${monthNumber.value} tháng trừ doanh thu hủy ước tính`
+  return 'Tách Fiber / MyTV để nhận diện phần doanh thu hủy ước tính lớn nhất'
+})
+const maintenanceUnitChartTitle = computed(() => maintenanceRevenueViewOptions.find(option => option.value === maintenanceRevenueView.value)?.title ?? '')
+const maintenanceOtherChartTitle = computed(() => maintenanceOtherViewOptions.find(option => option.value === maintenanceOtherView.value)?.title ?? '')
+function maintenanceMetricOption(chartRows: KpiMaintenanceRow[], metrics: MaintenanceChartMetric[], unit: 'money' | 'count' | 'arpu', totalKey: MaintenanceMetric | null) {
+  const valueFormat = (value: number | null) => value == null ? '—' : unit === 'money' ? formatRevenue(value) : `${numberFormat.format(value)} ${unit === 'arpu' ? 'đồng/thuê bao' : 'thuê bao'}`
+  return {
+    tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'shadow' }, formatter: (items: Array<{ dataIndex: number }>) => {
+      const row = chartRows[items[0]?.dataIndex ?? -1]
+      if (!row) return ''
+      const lines = [row.unitName, ...metrics.map(metric => `${metric.title}: ${valueFormat(row[metric.key])}`)]
+      if (totalKey && metrics.length > 1) lines.push(`Tổng: ${valueFormat(row[totalKey])}`)
+      if (unit === 'money') lines.push(`Tỷ lệ duy trì: ${row.maintainedRate == null ? '—' : `${numberFormat.format(row.maintainedRate)}%`}`)
+      return lines.join('\n')
+    } },
+    legend: { top: 0, textStyle: { color: '#526a7b' } },
+    grid: { left: 105, right: 30, top: 42, bottom: 38 },
+    xAxis: { type: 'value', min: (range: { min: number }) => Math.min(0, range.min * 1.1), axisLabel: { color: '#526a7b', formatter: (value: number) => unit === 'money' ? compactNumberFormat.format(value) : numberFormat.format(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+    yAxis: { type: 'category', inverse: true, data: chartRows.map(row => row.unitName || row.unitCode), axisLabel: { color: '#526a7b', width: 90, overflow: 'truncate' }, axisTick: { show: false } },
+    series: metrics.map(metric => ({
+      name: metric.title,
+      type: 'bar',
+      stack: unit === 'arpu' ? undefined : 'services',
+      barMaxWidth: unit === 'arpu' ? 13 : 23,
+      data: chartRows.map(row => ({
+        value: row[metric.key],
+        itemStyle: { color: metric.color, opacity: selectedMaintenanceUnit.value && selectedMaintenanceUnit.value !== row.unitCode ? 0.45 : 1 },
+        emphasis: { itemStyle: { opacity: 1 } },
+      })),
+      itemStyle: { color: metric.color, borderRadius: [0, 4, 4, 0] },
+    })),
+  }
+}
+const maintenanceRevenueOption = computed(() => maintenanceMetricOption(maintenanceRevenueChartRows.value, maintenanceRevenueMetricSets[maintenanceRevenueView.value], 'money', maintenanceRevenueTotalKeys[maintenanceRevenueView.value]))
+const maintenanceOtherOption = computed(() => maintenanceMetricOption(maintenanceOtherChartRows.value, maintenanceOtherMetricSets[maintenanceOtherView.value], maintenanceOtherView.value === 'arpu' ? 'arpu' : 'count', maintenanceOtherTotalKey.value))
+function selectMaintenanceUnit(event: { dataIndex?: number }, chartRows: KpiMaintenanceRow[]) {
+  const row = event.dataIndex == null ? null : chartRows[event.dataIndex]
+  if (row) selectedMaintenanceUnit.value = selectedMaintenanceUnit.value === row.unitCode ? null : row.unitCode
+}
+function clearMaintenanceUnit() { selectedMaintenanceUnit.value = null }
+const maintenanceRateTotal = computed(() => selectedMaintenanceRow.value ? selectedMaintenanceRow.value.maintainedRate : maintenanceNetworkRate.value)
+const maintenanceLossShare = computed(() => maintenanceTotals.value.base != null && maintenanceTotals.value.base > 0 && maintenanceTotals.value.canceled != null ? maintenanceTotals.value.canceled / maintenanceTotals.value.base * 100 : null)
+function maintenanceMoney(value: number | null) { return value == null ? '—' : formatRevenue(value) }
+function maintenanceCount(value: number | null) { return value == null ? '—' : numberFormat.format(value) }
+const maintenanceTableView = ref<'overview' | 'revenue' | 'subscribers'>('overview')
+const maintenanceTableColumns: Record<typeof maintenanceTableView.value, Array<[string, MaintenanceMetric | 'maintainedRate']>> = {
+  overview: [
+    ['Tỷ lệ duy trì', 'maintainedRate'], ['DT hủy ước tính', 'estimatedCanceledRevenue'],
+    ['DT duy trì ước tính', 'maintainedRevenue'], ['DT gốc tính theo số tháng', 'cumulativeBaseRevenue'], ['Thuê bao ngừng PSC', 'stoppedSubscribers'],
+  ],
+  revenue: [
+    ['DT gốc Fiber', 'baseRevenueFiber'], ['DT gốc MyTV', 'baseRevenueMyTv'], ['Tổng DT gốc', 'baseRevenue'],
+    ['DT gốc LK Fiber', 'cumulativeBaseRevenueFiber'], ['DT gốc LK MyTV', 'cumulativeBaseRevenueMyTv'], ['Tổng DT gốc LK', 'cumulativeBaseRevenue'],
+    ['DT trước ngừng Fiber', 'stoppedFiberRevenue'], ['DT trước ngừng MyTV', 'stoppedMyTvRevenue'], ['Tổng DT trước ngừng', 'stoppedRevenue'],
+    ['DT hủy ước tính Fiber', 'estimatedCanceledFiberRevenue'], ['DT hủy ước tính MyTV', 'estimatedCanceledMyTvRevenue'], ['Tổng DT hủy ước tính', 'estimatedCanceledRevenue'],
+    ['DT duy trì ước tính', 'maintainedRevenue'], ['Tỷ lệ duy trì', 'maintainedRate'],
+  ],
+  subscribers: [
+    ['Thuê bao gốc Fiber', 'fiberSubscribers'], ['Thuê bao gốc MyTV', 'mytvSubscribers'], ['Tổng thuê bao gốc', 'subscribers'],
+    ['Ngừng PSC Fiber', 'stoppedFiberSubscribers'], ['Ngừng PSC MyTV', 'stoppedMyTvSubscribers'], ['Tổng ngừng PSC', 'stoppedSubscribers'],
+    ['ARPU Fiber (đồng/TB)', 'arpuFiber'], ['ARPU MyTV (đồng/TB)', 'arpuMyTv'],
+  ],
+}
+const maintenanceTableHeaders = computed(() => [
+  { title: 'Đơn vị', key: 'unitName', fixed: 'start' as const, width: 190 },
+  ...maintenanceTableColumns[maintenanceTableView.value].map(([title, key]) => ({ title, key, align: 'end' as const })),
+])
+const maintenanceTableNumberKeys = computed(() => maintenanceTableColumns[maintenanceTableView.value].map(([, key]) => key).filter(key => key !== 'maintainedRate'))
+const maintenanceTableRows = computed(() => sortMaintenanceRows('estimatedCanceledRevenue', 'desc'))
 const trendHasData = computed(() => trendRows.value.some(row => row.revenue != null || row.subscribers != null))
 const trendHasRevenue = computed(() => trendRows.value.some(row => row.revenue != null))
 const trendHasSubscribers = computed(() => trendRows.value.some(row => row.subscribers != null))
 const revenueChartRows = computed(() => revenueSort.value === 'asc' ? trendRows.value : [...trendRows.value].reverse())
 const subscriberChartRows = computed(() => subscriberSort.value === 'asc' ? trendRows.value : [...trendRows.value].reverse())
+const snapshotMonthlyRows = computed(() => revenueSort.value === 'asc' ? trendRows.value : [...trendRows.value].reverse())
+const snapshotCumulativeRows = computed(() => subscriberSort.value === 'asc' ? trendRows.value : [...trendRows.value].reverse())
 const currentTrend = computed(() => trendRows.value[trendRows.value.length - 1])
+const snapshotSummaryTrend = computed(() => trendRows.value.find(row => row.month === selectedSnapshotMonth.value) ?? currentTrend.value)
+function selectSnapshotMonth(event: { dataIndex?: number }, chartRows: KpiTrendRow[]) {
+  const row = event.dataIndex == null ? null : chartRows[event.dataIndex]
+  if (row) selectedSnapshotMonth.value = row.month
+}
+const snapshotViewingLabel = computed(() => {
+  const period = snapshotSummaryTrend.value?.month
+  return period ? `tháng ${Number(period.slice(5))}/${period.slice(0, 4)}` : monthLabel.value
+})
+const snapshotRevenueChange = computed(() => {
+  const index = trendRows.value.findIndex(row => row.month === snapshotSummaryTrend.value?.month)
+  const row = trendRows.value[index]
+  const previous = trendRows.value[index - 1]
+  if (!row || !previous || row.month.slice(0, 4) !== previous.month.slice(0, 4) || Number(row.month.slice(5)) - Number(previous.month.slice(5)) !== 1) return null
+  return trendChangeAt(index, 'revenue')
+})
+function snapshotGap(actual: number | null | undefined, plan: number | null | undefined) {
+  if (actual == null || plan == null) return 'Chưa có đủ dữ liệu đối chiếu kế hoạch'
+  const gap = actual - plan
+  if (Math.abs(gap) < 1) return 'Đạt kế hoạch'
+  return `${gap < 0 ? 'Còn thiếu' : 'Vượt kế hoạch'} ${formatRevenue(Math.abs(gap))}`
+}
+const snapshotPlanDiscrepancies = computed(() => {
+  let sum = 0
+  const periods: string[] = []
+  for (const [index, row] of trendRows.value.entries()) {
+    // Only compare a complete sequence from January; source plans remain unchanged.
+    if (Number(row.month.slice(5)) !== index + 1 || row.plan == null) return []
+    sum += row.plan
+    if (row.cumulativePlan != null && Math.abs(sum - row.cumulativePlan) > 1) periods.push(`T${Number(row.month.slice(5))}`)
+  }
+  return periods
+})
+const snapshotAnnualScale = computed(() => {
+  const row = snapshotSummaryTrend.value
+  if (row?.cumulativeRevenue == null || row.annualPlan == null || row.annualPlan <= 0 || row.cumulativeRevenue < 0) return null
+  const max = Math.max(row.cumulativeRevenue, row.annualPlan)
+  return { actual: row.cumulativeRevenue / max * 100, target: row.annualPlan / max * 100 }
+})
+const snapshotTableHeaders = [
+  { title: 'Tháng', key: 'month', fixed: 'start' as const, width: 150, sortable: false },
+  { title: 'Trong tháng', align: 'center' as const, children: [
+    { title: 'Kế hoạch', key: 'plan', align: 'end' as const, sortable: false },
+    { title: 'Doanh thu', key: 'revenue', align: 'end' as const, sortable: false },
+    { title: 'Hoàn thành', key: 'completionRate', align: 'end' as const, sortable: false },
+  ] },
+  { title: 'Lũy kế đến tháng', align: 'center' as const, children: [
+    { title: 'Kế hoạch', key: 'cumulativePlan', align: 'end' as const, sortable: false },
+    { title: 'Doanh thu', key: 'cumulativeRevenue', align: 'end' as const, sortable: false },
+    { title: 'Hoàn thành', key: 'cumulativeRate', align: 'end' as const, sortable: false },
+  ] },
+  { title: 'Kế hoạch năm', align: 'center' as const, children: [
+    { title: 'Mục tiêu', key: 'annualPlan', align: 'end' as const, sortable: false },
+    { title: 'Hoàn thành', key: 'annualRate', align: 'end' as const, sortable: false },
+  ] },
+]
 const cumulativeRevenue = computed(() => trendRows.value.reduce((sum, row) => sum + (row.revenue ?? 0), 0))
 type TrendMetric = 'revenue' | 'subscribers'
 function formatRevenue(value: number) {
@@ -205,6 +463,59 @@ const trendSubscribersOption = computed(() => ({
   yAxis: { type: 'value', min: subscriberRange.value.min, max: subscriberRange.value.max, axisLabel: { color: '#526a7b', formatter: (value: number) => numberFormat.format(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
   series: [{ name: 'Số thuê bao', type: 'line', data: subscriberChartRows.value.map(row => row.subscribers), smooth: 0.25, symbol: 'circle', symbolSize: 8, lineStyle: { width: 3, color: '#3678c4' }, itemStyle: { color: '#3678c4', borderColor: '#fff', borderWidth: 2 }, emphasis: { scale: 1.3 } }],
 }))
+function snapshotTooltip(row: KpiTrendRow | undefined, cumulative = false) {
+  if (!row) return ''
+  const actual = cumulative ? row.cumulativeRevenue : row.revenue
+  const plan = cumulative ? row.cumulativePlan : row.plan
+  const rate = cumulative ? row.cumulativeRate : row.completionRate
+  const period = `Tháng ${Number(row.month.slice(5))}/${row.month.slice(0, 4)}`
+  const lines = [period, `Doanh thu${cumulative ? ' lũy kế' : ''}: ${actual == null ? '—' : formatRevenue(actual)}`, `Kế hoạch: ${plan == null ? '—' : formatRevenue(plan)}`, `Hoàn thành: ${rate == null ? '—' : `${numberFormat.format(rate)}%`}`, snapshotGap(actual, plan)]
+  if (!cumulative) {
+    const index = trendRows.value.findIndex(item => item.month === row.month)
+    const previous = trendRows.value[index - 1]
+    if (previous && Number(row.month.slice(5)) - Number(previous.month.slice(5)) === 1) lines.push(`So tháng trước: ${signedChange(trendChangeAt(index, 'revenue'), 'revenue')}`)
+  } else if (snapshotPlanDiscrepancies.value.includes(`T${Number(row.month.slice(5))}`)) {
+    lines.push('Lưu ý: kế hoạch lũy kế nguồn khác tổng kế hoạch các tháng.')
+  }
+  return lines.join('\n')
+}
+const snapshotMonthlyOption = computed(() => {
+  const isRate = snapshotMonthlyView.value === 'rate'
+  const point = (row: KpiTrendRow, value: number | null | undefined) => ({ value, itemStyle: { opacity: selectedSnapshotMonth.value && selectedSnapshotMonth.value !== row.month ? 0.4 : 1 } })
+  return {
+  tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'shadow' }, formatter: (items: Array<{ dataIndex: number }>) => snapshotTooltip(snapshotMonthlyRows.value[items[0]?.dataIndex ?? -1]) },
+  legend: { top: 4, textStyle: { color: '#526a7b' } },
+  grid: { left: 82, right: 24, top: 48, bottom: 42 },
+  xAxis: { type: 'category', data: snapshotMonthlyRows.value.map(row => `T${Number(row.month.slice(5))}`), axisLabel: { color: '#526a7b' } },
+  yAxis: { type: 'value', min: 0, ...(isRate ? { max: (range: { max: number }) => Math.max(110, Math.ceil(range.max / 10) * 10) } : {}), axisLabel: { color: '#526a7b', formatter: (value: number) => isRate ? `${numberFormat.format(value)}%` : formatRevenue(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+  series: isRate ? [
+    { name: 'Hoàn thành tháng', type: 'bar', barMaxWidth: 32, data: snapshotMonthlyRows.value.map(row => point(row, row.completionRate)), itemStyle: { color: '#0c8b8d', borderRadius: [5, 5, 0, 0] }, markLine: { silent: true, symbol: 'none', lineStyle: { color: '#e58a3a', type: 'dashed' }, label: { formatter: '100%' }, data: [{ yAxis: 100 }] } },
+  ] : [
+    { name: 'Kế hoạch tháng', type: 'bar', barMaxWidth: 24, data: snapshotMonthlyRows.value.map(row => point(row, row.plan)), itemStyle: { color: '#7997b4', borderRadius: [5, 5, 0, 0] } },
+    { name: 'Doanh thu tháng', type: 'bar', barMaxWidth: 24, data: snapshotMonthlyRows.value.map(row => point(row, row.revenue)), itemStyle: { color: '#0c8b8d', borderRadius: [5, 5, 0, 0] } },
+  ],
+}})
+const snapshotCumulativeOption = computed(() => ({
+  tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, formatter: (items: Array<{ dataIndex: number }>) => snapshotTooltip(snapshotCumulativeRows.value[items[0]?.dataIndex ?? -1], true) },
+  legend: { top: 4, textStyle: { color: '#526a7b' } },
+  grid: { left: 82, right: 24, top: 48, bottom: 42 },
+  xAxis: { type: 'category', data: snapshotCumulativeRows.value.map(row => `T${Number(row.month.slice(5))}`), axisLabel: { color: '#526a7b' } },
+  yAxis: { type: 'value', min: 0, axisLabel: { color: '#526a7b', formatter: (value: number) => formatRevenue(value) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+  series: [
+    { name: 'Kế hoạch lũy kế', type: 'line', data: snapshotCumulativeRows.value.map(row => ({ value: row.cumulativePlan, symbolSize: row.month === snapshotSummaryTrend.value?.month ? 11 : 7 })), smooth: false, symbol: 'circle', symbolSize: 7, lineStyle: { width: 2, type: 'dashed', color: '#7997b4' }, itemStyle: { color: '#7997b4' } },
+    { name: 'Doanh thu lũy kế', type: 'line', data: snapshotCumulativeRows.value.map(row => ({ value: row.cumulativeRevenue, symbolSize: row.month === snapshotSummaryTrend.value?.month ? 11 : 7 })), smooth: false, symbol: 'circle', symbolSize: 7, lineStyle: { width: 3, color: '#0c8b8d' }, itemStyle: { color: '#0c8b8d' } },
+  ],
+}))
+const maintenanceRateOption = computed(() => ({
+  tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'shadow' }, formatter: (items: Array<{ dataIndex: number }>) => {
+    const row = maintenanceRateRows.value[items[0]?.dataIndex ?? -1]
+    return row ? `${row.unitName}\nTỷ lệ duy trì: ${row.maintainedRate == null ? '—' : `${numberFormat.format(row.maintainedRate)}%`}\nDoanh thu duy trì ước tính: ${maintenanceMoney(row.maintainedRevenue)}\nDoanh thu hủy ước tính: ${maintenanceMoney(row.estimatedCanceledRevenue)}` : ''
+  } },
+  grid: { left: 105, right: 62, top: 42, bottom: 38 },
+  xAxis: { type: 'value', min: (range: { min: number }) => Math.min(0, range.min), max: (range: { max: number }) => Math.max(100, Math.ceil(range.max / 10) * 10), axisLabel: { color: '#526a7b', formatter: (value: number) => `${numberFormat.format(value)}%` }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+  yAxis: { type: 'category', inverse: true, data: maintenanceRateRows.value.map(row => row.unitName || row.unitCode), axisLabel: { color: '#526a7b', width: 90, overflow: 'truncate' }, axisTick: { show: false } },
+  series: [{ type: 'bar', barMaxWidth: 23, data: maintenanceRateRows.value.map(row => ({ value: row.maintainedRate, itemStyle: { color: row.maintainedRate != null && maintenanceNetworkRate.value != null && row.maintainedRate < maintenanceNetworkRate.value ? '#cf873b' : '#0c8b8d', opacity: selectedMaintenanceUnit.value && selectedMaintenanceUnit.value !== row.unitCode ? 0.45 : 1 } })), itemStyle: { borderRadius: [0, 4, 4, 0] }, label: { show: true, position: 'right', color: '#244252', formatter: ({ value }: { value: number | null }) => value == null ? '' : `${numberFormat.format(value)}%` }, markLine: maintenanceNetworkRate.value == null ? undefined : { silent: true, symbol: 'none', data: [{ xAxis: maintenanceNetworkRate.value }], lineStyle: { color: '#526a7b', type: 'dashed' }, label: { show: false } } }],
+}))
 
 const pscRateOption = computed(() => ({
   tooltip: {
@@ -255,9 +566,12 @@ async function load() {
   const queryMonth = month.value
   loading.value = true
   loaded.value = false
+  selectedSnapshotMonth.value = null
+  selectedMaintenanceUnit.value = null
   rows.value = []
   trendRows.value = []
   pscRows.value = []
+  maintenanceRows.value = []
   error.value = ''
   try {
     if (procedure === 'TONG_HOP_KPI') {
@@ -270,6 +584,10 @@ async function load() {
       const result = await kpiApi.psc(queryMonth, procedure)
       if (version !== loadVersion) return
       pscRows.value = result.rows
+    } else if (isMaintenanceProcedure(procedure)) {
+      const result = await kpiApi.maintenance(queryMonth)
+      if (version !== loadVersion) return
+      maintenanceRows.value = result.rows
     } else {
       const result = await kpiApi.trend(queryMonth, procedure)
       if (version !== loadVersion) return
@@ -283,6 +601,7 @@ async function load() {
     rows.value = []
     trendRows.value = []
     pscRows.value = []
+    maintenanceRows.value = []
     loaded.value = true
     error.value = getAuthErrorMessage(cause)
   } finally {
@@ -332,17 +651,38 @@ async function initialize() {
 }
 
 onMounted(initialize)
-watch([selectedProcedure, monthNumber, year], () => { if (initialized.value) void load() })
+let selectionVersion = 0
+watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProcedure]) => {
+  if (!initialized.value) return
+  const version = ++selectionVersion
+  if (procedure !== previousProcedure && isSnapshotProcedure(procedure)) {
+    try {
+      const latest = await kpiApi.latestMonth(procedure)
+      if (version !== selectionVersion || selectedProcedure.value !== procedure) return
+      if (latest) {
+        const [latestYear, latestMonth] = latest.split('-').map(Number)
+        if (latestYear && latestMonth && (year.value !== latestYear || monthNumber.value !== latestMonth)) {
+          year.value = latestYear
+          monthNumber.value = latestMonth
+          return
+        }
+      }
+    } catch {
+      // Continue with the currently selected month if the snapshot lookup is unavailable.
+    }
+  }
+  if (version === selectionVersion) void load()
+})
 </script>
 
 <template>
   <v-container class="kpi-page" fluid>
     <header class="page-head">
-      <div><span class="eyebrow">HỆ THỐNG DỮ LIỆU GIAO BAN</span><h1>Tổng hợp chỉ tiêu KPI</h1><p>{{ pageDescription }} <strong>{{ monthLabel }}</strong>.</p></div>
+      <div><span class="eyebrow">HỆ THỐNG DỮ LIỆU GIAO BAN</span><h1>{{ isMaintenanceProcedure(selectedProcedure) ? 'Doanh thu duy trì Fiber + MyTV' : 'Tổng hợp chỉ tiêu KPI' }}</h1><p>{{ pageDescription }} <strong>{{ monthLabel }}</strong>.</p></div>
     </header>
     <v-card class="filter-card" elevation="0"><v-card-text class="filter-row">
       <v-select v-model="selectedProcedure" :items="procedureOptions" label="Chỉ tiêu" variant="outlined" hide-details />
-      <v-select v-model="monthNumber" :items="monthOptions" label="Tháng báo cáo" variant="outlined" hide-details />
+      <v-select v-model="monthNumber" :items="monthOptions" :label="isSnapshotTrend ? 'Bộ số liệu tháng' : 'Tháng báo cáo'" variant="outlined" hide-details />
       <v-select v-model="year" :items="yearOptions" label="Năm" variant="outlined" hide-details />
       <v-btn color="primary" prepend-icon="mdi-chart-box-outline" :loading="loading" @click="load">Xem số liệu</v-btn>
       <div v-if="selectedProcedure === 'TONG_HOP_KPI'" class="mode-toggle"><span>{{ cumulativeMode ? 'L\u0169y k\u1ebf' : 'Theo th\u00e1ng' }}</span><v-switch v-model="cumulativeMode" color="primary" density="compact" inset hide-details /></div>
@@ -478,15 +818,106 @@ watch([selectedProcedure, monthNumber, year], () => { if (initialized.value) voi
           </v-card>
         </template>
       </template>
+      <template v-else-if="isMaintenanceProcedure(selectedProcedure)">
+        <v-alert v-if="!maintenanceRows.length" class="mt-4" type="info" variant="tonal">Không có dữ liệu doanh thu duy trì Fiber và MyTV trong {{ monthLabel }}.</v-alert>
+        <template v-else>
+          <div class="maintenance-context">
+            <div><strong><v-icon icon="mdi-office-building-outline" size="18" /> {{ maintenanceSelectedName }}</strong><span>Lũy kế từ tháng 1 đến {{ monthLabel }} · Tháng gốc {{ maintenanceBaseMonth }}</span></div>
+            <v-btn v-if="selectedMaintenanceRow" size="small" variant="tonal" color="primary" prepend-icon="mdi-close-circle-outline" @click="clearMaintenanceUnit">Xem toàn bộ đơn vị</v-btn>
+          </div>
+          <v-row class="summary-row">
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card maintenance-summary" elevation="0"><small>DOANH THU DUY TRÌ ƯỚC TÍNH</small><strong>{{ maintenanceMoney(maintenanceTotals.maintained) }}</strong><p>Doanh thu tháng gốc tính cho {{ monthNumber }} tháng</p><span>{{ maintenanceMoney(maintenanceTotals.base) }}</span></v-card></v-col>
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card maintenance-summary" elevation="0"><small>TỶ LỆ DOANH THU DUY TRÌ</small><strong>{{ maintenanceRateTotal == null ? '—' : `${numberFormat.format(maintenanceRateTotal)}%` }}</strong><p v-if="selectedMaintenanceRow">Mức chung {{ maintenanceNetworkRate == null ? '—' : `${numberFormat.format(maintenanceNetworkRate)}%` }}</p><p v-else>{{ maintenanceBelowNetwork }}/{{ maintenanceRows.length }} đơn vị dưới mức chung</p><span>Tính theo tỷ trọng doanh thu gốc</span></v-card></v-col>
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card maintenance-summary maintenance-summary-loss" elevation="0"><small>DOANH THU HỦY ƯỚC TÍNH</small><strong>{{ maintenanceMoney(maintenanceTotals.canceled) }}</strong><p>Fiber {{ maintenanceMoney(maintenanceTotals.canceledFiber) }}</p><span>MyTV {{ maintenanceMoney(maintenanceTotals.canceledMyTv) }}<br>Tỷ lệ doanh thu hủy: {{ maintenanceLossShare == null ? '—' : `${numberFormat.format(maintenanceLossShare)}%` }}</span></v-card></v-col>
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card maintenance-summary" elevation="0"><small>THUÊ BAO NGỪNG PSC LŨY KẾ</small><strong>{{ maintenanceCount(maintenanceTotals.stoppedSubscribers) }}<span class="summary-unit"> thuê bao</span></strong><p>Fiber {{ maintenanceCount(maintenanceTotals.stoppedFiber) }} · MyTV {{ maintenanceCount(maintenanceTotals.stoppedMyTv) }}</p><span>PSC: phát sinh cước</span></v-card></v-col>
+          </v-row>
+          <div class="maintenance-highlights">
+            <button v-if="maintenanceLowestUnit" type="button" :aria-pressed="selectedMaintenanceUnit === maintenanceLowestUnit.unitCode" @click="selectedMaintenanceUnit = maintenanceLowestUnit.unitCode"><v-icon icon="mdi-chart-bar" size="18" /><span>Tỷ lệ duy trì thấp nhất <strong>{{ maintenanceLowestUnit.unitName }} · {{ maintenanceLowestUnit.maintainedRate == null ? '—' : `${numberFormat.format(maintenanceLowestUnit.maintainedRate)}%` }}</strong></span><v-icon icon="mdi-chevron-right" size="18" /></button>
+            <button v-if="maintenanceLargestLossUnit" type="button" :aria-pressed="selectedMaintenanceUnit === maintenanceLargestLossUnit.unitCode" @click="selectedMaintenanceUnit = maintenanceLargestLossUnit.unitCode"><v-icon icon="mdi-cash-minus" size="18" /><span>Doanh thu hủy ước tính lớn nhất <strong>{{ maintenanceLargestLossUnit.unitName }} · {{ maintenanceMoney(maintenanceLargestLossUnit.estimatedCanceledRevenue) }}</strong></span><v-icon icon="mdi-chevron-right" size="18" /></button>
+          </div>
+          <v-row class="chart-row maintenance-overview-row">
+            <v-col cols="12" lg="6">
+              <v-card class="chart-card" elevation="0">
+                <div class="chart-sort-header"><v-card-title><strong>Tỷ lệ duy trì theo đơn vị</strong><span>Mặc định xếp thấp nhất trước · Bấm đơn vị để xem chi tiết</span></v-card-title><v-btn class="chart-sort-button" :icon="sortIcon(maintenanceRateSort)" size="small" variant="tonal" color="primary" :title="sortTitle(maintenanceRateSort)" :aria-label="sortTitle(maintenanceRateSort)" @click="maintenanceRateSort = toggleSort(maintenanceRateSort)" /></div>
+                <div class="maintenance-chart-toolbar maintenance-rate-note"><span><i /> Dưới mức chung</span><span>Nét đứt: mức chung {{ maintenanceNetworkRate == null ? '—' : `${numberFormat.format(maintenanceNetworkRate)}%` }}</span></div>
+                <v-card-text><ZoomableKpiChart class="chart maintenance-chart" :option="maintenanceRateOption" axis="y" :count="maintenanceRateRows.length" @click="selectMaintenanceUnit($event, maintenanceRateRows)" /></v-card-text>
+              </v-card>
+            </v-col>
+            <v-col cols="12" lg="6">
+              <v-card class="chart-card" elevation="0">
+                <div class="chart-sort-header"><v-card-title><strong>{{ maintenanceUnitChartTitle }} theo đơn vị</strong><span>{{ maintenanceRevenueCaption }}</span></v-card-title><v-btn class="chart-sort-button" :icon="sortIcon(maintenanceRevenueSort)" size="small" variant="tonal" color="primary" :title="sortTitle(maintenanceRevenueSort)" :aria-label="sortTitle(maintenanceRevenueSort)" @click="maintenanceRevenueSort = toggleSort(maintenanceRevenueSort)" /></div>
+                <div class="maintenance-chart-toolbar"><v-select v-model="maintenanceRevenueView" :items="maintenanceRevenueViewOptions" label="Chỉ tiêu doanh thu" density="compact" variant="outlined" hide-details /></div>
+                <v-card-text><ZoomableKpiChart class="chart maintenance-chart" :option="maintenanceRevenueOption" axis="y" :count="maintenanceRevenueChartRows.length" @click="selectMaintenanceUnit($event, maintenanceRevenueChartRows)" /></v-card-text>
+              </v-card>
+            </v-col>
+          </v-row>
+          <v-expansion-panels class="maintenance-details" variant="accordion">
+            <v-expansion-panel elevation="0">
+              <v-expansion-panel-title>Phân tích thêm: thuê bao và doanh thu bình quân</v-expansion-panel-title>
+              <v-expansion-panel-text>
+                <div class="chart-sort-header"><div><strong>{{ maintenanceOtherChartTitle }} theo đơn vị</strong><p class="maintenance-detail-caption">{{ maintenanceOtherView === 'arpu' ? `Tháng gốc ${maintenanceBaseMonth} · Đơn vị: đồng/thuê bao · Xếp theo ARPU Fiber` : maintenanceOtherView === 'subscribers' ? `Số thuê bao trong tháng gốc ${maintenanceBaseMonth}` : `Thuê bao ngừng phát sinh cước lũy kế đến ${monthLabel}` }}</p></div><v-btn :icon="sortIcon(maintenanceSubscriberSort)" size="small" variant="tonal" color="primary" :title="sortTitle(maintenanceSubscriberSort)" :aria-label="sortTitle(maintenanceSubscriberSort)" @click="maintenanceSubscriberSort = toggleSort(maintenanceSubscriberSort)" /></div>
+                <div class="maintenance-metric-filters"><v-chip v-for="item in maintenanceOtherViewOptions" :key="item.value" :color="maintenanceOtherView === item.value ? 'primary' : undefined" :variant="maintenanceOtherView === item.value ? 'flat' : 'outlined'" size="small" @click="maintenanceOtherView = item.value">{{ item.title }}</v-chip></div>
+                <ZoomableKpiChart class="chart maintenance-chart" :option="maintenanceOtherOption" axis="y" :count="maintenanceOtherChartRows.length" @click="selectMaintenanceUnit($event, maintenanceOtherChartRows)" />
+              </v-expansion-panel-text>
+            </v-expansion-panel>
+          </v-expansion-panels>
+          <v-card class="table-card trend-table-card" elevation="0">
+            <v-card-title><div><strong>Chi tiết theo đơn vị</strong><span>Đơn vị tiền: đồng · Mặc định xếp doanh thu hủy ước tính giảm dần · Bấm tên đơn vị để xem các thẻ phía trên</span></div></v-card-title>
+            <div class="maintenance-table-toolbar"><v-btn-toggle v-model="maintenanceTableView" mandatory density="compact" variant="tonal" color="primary" aria-label="Nhóm số liệu trong bảng"><v-btn value="overview" size="small">Tổng quan</v-btn><v-btn value="revenue" size="small">Doanh thu</v-btn><v-btn value="subscribers" size="small">Thuê bao &amp; ARPU</v-btn></v-btn-toggle></div>
+            <v-data-table
+              :headers="maintenanceTableHeaders"
+              :items="maintenanceTableRows"
+              :items-per-page="20"
+              :items-per-page-options="[10, 20, 50]"
+              density="comfortable"
+              hover
+              class="kpi-table"
+            >
+              <template #item.unitName="{ item }"><button type="button" class="snapshot-table-month" :class="{ 'is-selected': selectedMaintenanceUnit === item.unitCode }" :aria-pressed="selectedMaintenanceUnit === item.unitCode" @click="selectedMaintenanceUnit = selectedMaintenanceUnit === item.unitCode ? null : item.unitCode">{{ item.unitName }}</button></template>
+              <template v-for="key in maintenanceTableNumberKeys" :key="key" #[`item.${key}`]="{ value }">{{ maintenanceCount(value) }}</template>
+              <template #item.maintainedRate="{ value }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</template>
+            </v-data-table>
+          </v-card>
+        </template>
+      </template>
       <template v-else>
+        <div v-if="isSnapshotTrend && trendRows.length" class="snapshot-context">
+          <div><span class="snapshot-period"><v-icon icon="mdi-calendar-month-outline" size="17" /> Đang xem <strong>{{ snapshotViewingLabel }}</strong></span><small>Bộ số liệu {{ monthLabel }}<template v-if="snapshotSummaryTrend?.updatedAt"> · Cập nhật {{ snapshotSummaryTrend.updatedAt }}</template></small></div>
+          <v-btn size="small" variant="text" color="primary" prepend-icon="mdi-history" :disabled="!selectedSnapshotMonth || selectedSnapshotMonth === currentTrend?.month" @click="selectedSnapshotMonth = null">Tháng mới nhất</v-btn>
+        </div>
         <v-row class="summary-row">
-          <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>DOANH THU THÁNG </small><strong>{{ currentTrend?.revenue == null ? '—' : formatRevenue(currentTrend.revenue) }}</strong></v-card></v-col>
-          <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>DOANH THU LŨY KẾ</small><strong>{{ trendHasRevenue ? formatRevenue(cumulativeRevenue) : '—' }}</strong></v-card></v-col>
-          <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>SỐ THUÊ BAO THÁNG</small><strong>{{ currentTrend?.subscribers == null ? '—' : numberFormat.format(currentTrend.subscribers) }}</strong></v-card></v-col>
+          <template v-if="isSnapshotTrend">
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>DOANH THU THÁNG</small><strong>{{ snapshotSummaryTrend?.revenue == null ? '—' : formatRevenue(snapshotSummaryTrend.revenue) }}</strong><p :class="snapshotRevenueChange && snapshotRevenueChange.delta < 0 ? 'snapshot-negative' : ''"><v-icon :icon="snapshotRevenueChange && snapshotRevenueChange.delta > 0 ? 'mdi-trending-up' : snapshotRevenueChange && snapshotRevenueChange.delta < 0 ? 'mdi-trending-down' : 'mdi-minus'" size="15" /> {{ signedChange(snapshotRevenueChange, 'revenue') }}</p><span>So với tháng trước</span></v-card></v-col>
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>HOÀN THÀNH THÁNG</small><strong :class="snapshotSummaryTrend?.completionRate != null && snapshotSummaryTrend.completionRate < 100 ? 'snapshot-negative' : ''">{{ snapshotSummaryTrend?.completionRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.completionRate)}%` }}</strong><p>{{ snapshotGap(snapshotSummaryTrend?.revenue, snapshotSummaryTrend?.plan) }}</p><span>Kế hoạch: {{ snapshotSummaryTrend?.plan == null ? '—' : formatRevenue(snapshotSummaryTrend.plan) }}</span></v-card></v-col>
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>DOANH THU LŨY KẾ</small><strong>{{ snapshotSummaryTrend?.cumulativeRevenue == null ? '—' : formatRevenue(snapshotSummaryTrend.cumulativeRevenue) }}</strong><p>Kế hoạch: {{ snapshotSummaryTrend?.cumulativePlan == null ? '—' : formatRevenue(snapshotSummaryTrend.cumulativePlan) }}</p><span>Từ đầu năm đến {{ snapshotViewingLabel }}</span></v-card></v-col>
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>HOÀN THÀNH LŨY KẾ</small><strong :class="snapshotSummaryTrend?.cumulativeRate != null && snapshotSummaryTrend.cumulativeRate < 100 ? 'snapshot-negative' : ''">{{ snapshotSummaryTrend?.cumulativeRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.cumulativeRate)}%` }}</strong><p>{{ snapshotGap(snapshotSummaryTrend?.cumulativeRevenue, snapshotSummaryTrend?.cumulativePlan) }}</p><span>So với kế hoạch lũy kế đến tháng</span></v-card></v-col>
+          </template>
+          <template v-else>
+            <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>DOANH THU THÁNG </small><strong>{{ currentTrend?.revenue == null ? '—' : formatRevenue(currentTrend.revenue) }}</strong></v-card></v-col>
+            <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>DOANH THU LŨY KẾ</small><strong>{{ trendHasRevenue ? formatRevenue(cumulativeRevenue) : '—' }}</strong></v-card></v-col>
+            <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>SỐ THUÊ BAO THÁNG</small><strong>{{ currentTrend?.subscribers == null ? '—' : numberFormat.format(currentTrend.subscribers) }}</strong></v-card></v-col>
+          </template>
         </v-row>
         <v-alert v-if="!trendHasData" class="mt-4" type="info" variant="tonal">Không có dữ liệu {{ selectedProcedureLabel }} từ đầu năm đến {{ monthLabel }}.</v-alert>
         <template v-else>
           <v-row class="chart-row trend-chart-row">
+            <template v-if="isSnapshotTrend">
+              <v-col cols="12" lg="6">
+                <v-card class="chart-card" elevation="0">
+                  <div class="chart-sort-header"><v-card-title><strong>Kế hoạch và doanh thu từng tháng</strong><span>Bấm cột để xem chi tiết tháng tương ứng</span></v-card-title><v-btn class="chart-sort-button" :icon="sortIcon(revenueSort)" size="small" variant="tonal" color="primary" :title="sortTitle(revenueSort, true)" :aria-label="sortTitle(revenueSort, true)" @click="revenueSort = toggleSort(revenueSort)" /></div>
+                  <div class="snapshot-chart-mode"><v-btn-toggle v-model="snapshotMonthlyView" mandatory density="compact" color="primary" variant="tonal" aria-label="Cách xem biểu đồ tháng"><v-btn value="value" size="small">Giá trị</v-btn><v-btn value="rate" size="small">Tỷ lệ hoàn thành</v-btn></v-btn-toggle></div>
+                  <v-card-text><ZoomableKpiChart :key="`${selectedProcedure}-${snapshotMonthlyView}`" class="chart" :option="snapshotMonthlyOption" axis="y" :count="trendRows.length" @click="selectSnapshotMonth($event, snapshotMonthlyRows)" /></v-card-text>
+                </v-card>
+              </v-col>
+              <v-col cols="12" lg="6">
+                <v-card class="chart-card" elevation="0">
+                  <div class="chart-sort-header"><v-card-title><strong>Tiến độ doanh thu lũy kế</strong><span>Nét đứt: kế hoạch · Nét liền: thực hiện</span></v-card-title><v-btn class="chart-sort-button" :icon="sortIcon(subscriberSort)" size="small" variant="tonal" color="primary" :title="sortTitle(subscriberSort, true)" :aria-label="sortTitle(subscriberSort, true)" @click="subscriberSort = toggleSort(subscriberSort)" /></div>
+                  <div class="snapshot-chart-caption">{{ snapshotGap(snapshotSummaryTrend?.cumulativeRevenue, snapshotSummaryTrend?.cumulativePlan) }} · {{ snapshotViewingLabel }}</div>
+                  <v-card-text><ZoomableKpiChart :key="selectedProcedure" class="chart" :option="snapshotCumulativeOption" axis="y" :count="trendRows.length" @click="selectSnapshotMonth($event, snapshotCumulativeRows)" /></v-card-text>
+                </v-card>
+              </v-col>
+            </template>
+            <template v-else>
             <v-col v-if="trendHasRevenue" cols="12" :lg="trendHasSubscribers ? 6 : 12">
               <v-card class="chart-card" elevation="0">
                 <div class="chart-sort-header"><v-card-title><strong>Doanh thu {{ selectedProcedureLabel }}</strong><span>Theo tháng đến {{ monthLabel }}</span></v-card-title><v-btn class="chart-sort-button" :icon="sortIcon(revenueSort)" size="small" variant="tonal" color="primary" :title="sortTitle(revenueSort, true)" :aria-label="sortTitle(revenueSort, true)" @click="revenueSort = toggleSort(revenueSort)" /></div>
@@ -497,7 +928,7 @@ watch([selectedProcedure, monthNumber, year], () => { if (initialized.value) voi
                     <span>{{ signedChange(revenueChange, 'revenue') }}</span>
                   </div>
                 </div>
-                <v-card-text><ZoomableKpiChart class="chart" :option="trendRevenueOption" axis="y" :anchor="revenueSort === 'asc' ? 'end' : 'start'" :count="trendRows.length" /></v-card-text>
+                <v-card-text><ZoomableKpiChart class="chart" :option="trendRevenueOption" axis="y" :count="trendRows.length" /></v-card-text>
               </v-card>
             </v-col>
             <v-col v-if="trendHasSubscribers" cols="12" :lg="trendHasRevenue ? 6 : 12">
@@ -513,11 +944,44 @@ watch([selectedProcedure, monthNumber, year], () => { if (initialized.value) voi
                     <span>{{ signedChange(subscriberChange, 'subscribers') }}</span>
                   </div>
                 </div>
-                <v-card-text><ZoomableKpiChart class="chart" :option="trendSubscribersOption" axis="y" :anchor="subscriberSort === 'asc' ? 'end' : 'start'" :count="trendRows.length" /></v-card-text>
+                <v-card-text><ZoomableKpiChart class="chart" :option="trendSubscribersOption" axis="y" :count="trendRows.length" /></v-card-text>
               </v-card>
             </v-col>
+            </template>
           </v-row>
-          <v-card class="table-card trend-table-card" elevation="0">
+          <template v-if="isSnapshotTrend">
+            <v-card class="snapshot-annual" elevation="0">
+              <div class="snapshot-annual-head"><div><strong>Tiến độ kế hoạch năm</strong><span>Lũy kế đến {{ snapshotViewingLabel }}</span></div><strong class="snapshot-annual-rate">{{ snapshotSummaryTrend?.annualRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.annualRate)}%` }}</strong></div>
+              <div v-if="snapshotAnnualScale" class="snapshot-annual-track" role="img" :aria-label="`Doanh thu lũy kế ${formatRevenue(snapshotSummaryTrend!.cumulativeRevenue!)}; kế hoạch năm ${formatRevenue(snapshotSummaryTrend!.annualPlan!)}; hoàn thành ${snapshotSummaryTrend?.annualRate == null ? 'chưa có tỷ lệ' : `${numberFormat.format(snapshotSummaryTrend.annualRate)}%`}`"><div class="snapshot-annual-fill" :style="{ width: `${snapshotAnnualScale.actual}%` }" /><div class="snapshot-annual-target" :style="{ left: `${snapshotAnnualScale.target}%` }" /></div>
+              <p v-else class="snapshot-annual-empty">Chưa có đủ số liệu để vẽ tiến độ kế hoạch năm.</p>
+              <div class="snapshot-annual-values"><span><i class="snapshot-legend-actual" /> Đã thực hiện <b>{{ snapshotSummaryTrend?.cumulativeRevenue == null ? '—' : formatRevenue(snapshotSummaryTrend.cumulativeRevenue) }}</b></span><span><i class="snapshot-legend-target" /> Kế hoạch năm <b>{{ snapshotSummaryTrend?.annualPlan == null ? '—' : formatRevenue(snapshotSummaryTrend.annualPlan) }}</b></span><span>{{ snapshotGap(snapshotSummaryTrend?.cumulativeRevenue, snapshotSummaryTrend?.annualPlan) }}</span></div>
+              <small>Vạch đứng là mục tiêu năm. Tiến độ so với kế hoạch đến tháng được thể hiện ở thẻ hoàn thành lũy kế phía trên.</small>
+            </v-card>
+            <v-alert v-if="snapshotPlanDiscrepancies.length" type="warning" variant="tonal" density="compact" class="snapshot-check">Kế hoạch lũy kế tại {{ snapshotPlanDiscrepancies.join(', ') }} trong nguồn khác tổng kế hoạch các tháng trước đó và tháng hiện tại. Biểu đồ và bảng giữ nguyên số liệu nguồn; cần đối chiếu kế hoạch kỳ này.</v-alert>
+          </template>
+          <v-card v-if="isSnapshotTrend" class="table-card trend-table-card snapshot-table" elevation="0">
+            <v-card-title><div><strong>Chi tiết {{ selectedProcedureLabel }} theo tháng</strong><span>Bộ số liệu {{ monthLabel }} · Đơn vị tiền: đồng</span></div></v-card-title>
+            <v-data-table
+              :headers="snapshotTableHeaders"
+              :items="trendRows"
+              :items-per-page="12"
+              hide-default-footer
+              density="comfortable"
+              hover
+              class="kpi-table"
+            >
+              <template #item.month="{ value }"><button type="button" class="snapshot-table-month" :class="{ 'is-selected': value === snapshotSummaryTrend?.month }" :aria-pressed="value === snapshotSummaryTrend?.month" @click="selectedSnapshotMonth = value">Tháng {{ Number(value.slice(5)) }}/{{ value.slice(0, 4) }}</button></template>
+              <template #item.plan="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
+              <template #item.revenue="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
+              <template #item.completionRate="{ value }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</template>
+              <template #item.cumulativePlan="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
+              <template #item.cumulativeRevenue="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
+              <template #item.cumulativeRate="{ value }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</template>
+              <template #item.annualPlan="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
+              <template #item.annualRate="{ value }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</template>
+            </v-data-table>
+          </v-card>
+          <v-card v-else class="table-card trend-table-card" elevation="0">
             <v-card-title><div><strong>Chi tiết {{ selectedProcedureLabel }} theo tháng</strong><span>Doanh thu, số thuê bao và tổng doanh thu lũy kế đến {{ monthLabel }}</span></div></v-card-title>
             <v-data-table
               :headers="[{ title: 'Tháng', key: 'month', fixed: 'start', width: 190 }, { title: 'Doanh thu', key: 'revenue', align: 'end' }, { title: 'Số thuê bao', key: 'subscribers', align: 'end' }, { title: 'Tổng doanh thu lũy kế', key: 'totalRevenue', align: 'end' }]"
@@ -549,4 +1013,7 @@ watch([selectedProcedure, monthNumber, year], () => { if (initialized.value) voi
 .summary-unit{color:rgba(var(--v-theme-on-surface),.58);font-size:13px;font-weight:500;white-space:nowrap}
 .psc-rate-toolbar{display:flex;justify-content:flex-end;padding:0 21px 8px}.psc-sort-control{margin-left:auto;flex:0 0 auto;text-transform:none;letter-spacing:0}
 .chart-sort-header{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.chart-sort-header :deep(.v-card-title){min-width:0;flex:1}.chart-sort-button{flex:0 0 auto;margin:16px 18px 0 0}
+.maintenance-metric-filters{display:flex;flex-wrap:wrap;gap:7px;padding:5px 21px 8px}.maintenance-metric-filters :deep(.v-chip){font-size:11px;font-weight:600}.maintenance-selection{display:flex;align-items:center}
+.maintenance-context{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:22px}.maintenance-context strong{display:flex;align-items:center;gap:7px;color:rgb(var(--v-theme-primary));font-size:15px}.maintenance-context span{display:block;margin-top:5px;color:rgba(var(--v-theme-on-surface),.58);font-size:12px}.maintenance-summary{border-top:3px solid #0c8b8d}.maintenance-summary strong{font-size:22px}.maintenance-summary p{margin:10px 0 4px;font-size:12px;line-height:1.5;color:#356b73}.maintenance-summary>span{font-size:11px;color:rgba(var(--v-theme-on-surface),.58);line-height:1.6}.maintenance-summary-loss{border-top-color:#cf873b}.maintenance-summary-loss strong{color:#b76b23}.maintenance-highlights{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}.maintenance-highlights button{display:flex;align-items:center;gap:12px;padding:14px 18px;border:1px solid rgba(var(--v-theme-primary),.12);border-radius:10px;background:rgb(var(--v-theme-surface));text-align:left;color:#657b8b;font-size:12px}.maintenance-highlights button>span{flex:1}.maintenance-highlights strong{display:block;margin-top:4px;color:rgb(var(--v-theme-on-surface));font-size:14px}.maintenance-highlights button:hover,.maintenance-highlights button[aria-pressed=true]{border-color:rgb(var(--v-theme-primary));background:rgba(var(--v-theme-primary),.04)}.maintenance-highlights button:focus-visible{outline:2px solid rgb(var(--v-theme-primary));outline-offset:2px}.maintenance-overview-row .chart-sort-header{min-height:100px}.maintenance-chart-toolbar{display:flex;align-items:center;gap:12px;min-height:64px;padding:0 21px 12px}.maintenance-chart-toolbar :deep(.v-input){max-width:340px}.maintenance-rate-note{flex-wrap:wrap;align-content:center;color:#657b8b;font-size:11px}.maintenance-rate-note span{display:flex;align-items:center;gap:6px}.maintenance-rate-note i{display:inline-block;width:10px;height:10px;background:#cf873b;border-radius:2px}.maintenance-chart{height:440px}.maintenance-details :deep(.v-expansion-panel){border-radius:12px!important;border:1px solid rgba(var(--v-border-color),.12)}.maintenance-details :deep(.v-expansion-panel-title){font-size:14px;font-weight:600}.maintenance-detail-caption{margin-top:5px;color:#657b8b;font-size:12px}.maintenance-table-toolbar{padding:6px 21px 16px;overflow-x:auto}.maintenance-table-toolbar :deep(.v-btn){text-transform:none;letter-spacing:0}@media(max-width:700px){.maintenance-context{align-items:flex-start;flex-direction:column}.maintenance-highlights{grid-template-columns:1fr;gap:10px}.maintenance-overview-row .chart-sort-header{min-height:0}.maintenance-chart-toolbar{min-height:70px}.maintenance-details :deep(.v-expansion-panel-text__wrapper){padding:12px}.maintenance-summary strong{font-size:23px}}
+.snapshot-context{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px}.snapshot-context small{display:block;margin-top:5px;color:rgba(var(--v-theme-on-surface),.58);font-size:12px}.snapshot-period{display:flex;align-items:center;gap:6px;font-size:14px;color:rgb(var(--v-theme-primary))}.snapshot-summary{border-top:3px solid #0c8b8d}.snapshot-summary p{margin:10px 0 3px;font-size:12px;color:#236a6e;line-height:1.6}.snapshot-summary>span{color:rgba(var(--v-theme-on-surface),.58);font-size:11px}.snapshot-summary .snapshot-negative{color:#b75c27!important}.snapshot-summary strong{font-size:22px}.snapshot-chart-mode,.snapshot-chart-caption{display:flex;align-items:center;min-height:46px;padding:2px 21px 8px}.snapshot-chart-mode :deep(.v-btn){text-transform:none;letter-spacing:0;font-size:12px}.snapshot-chart-caption{font-size:12px;color:#526a7b}.snapshot-annual{margin-top:20px;padding:20px 24px;border-radius:12px;box-shadow:0 4px 18px rgba(29,61,83,.08)!important}.snapshot-annual-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.snapshot-annual-head>div>strong{font-size:16px}.snapshot-annual-head span{display:block;margin-top:5px;font-size:12px;color:rgba(var(--v-theme-on-surface),.58)}.snapshot-annual-rate{font-size:25px;color:#0c8b8d}.snapshot-annual-track{position:relative;height:14px;margin:22px 0;background:rgba(var(--v-theme-primary),.08);border-radius:4px}.snapshot-annual-fill{height:100%;background:#0c8b8d;border-radius:4px}.snapshot-annual-target{position:absolute;top:-5px;width:3px;height:24px;background:#607587;transform:translateX(-100%)}.snapshot-annual-values{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;font-size:12px}.snapshot-annual-values span{display:flex;align-items:center;gap:6px}.snapshot-annual-values i{display:inline-block;width:10px;height:10px;background:#0c8b8d;border-radius:2px}.snapshot-annual-values i.snapshot-legend-target{width:3px;height:13px;background:#607587}.snapshot-annual small{display:block;margin-top:14px;color:rgba(var(--v-theme-on-surface),.58);font-size:11px}.snapshot-annual-empty{margin:18px 0;color:#718397;font-size:13px}.snapshot-check{margin-top:16px;font-size:12px;line-height:1.7}.snapshot-table :deep(thead tr:nth-child(2) th:first-child){position:static;min-width:112px!important;box-shadow:none}.snapshot-table-month{border-radius:5px;padding:5px 7px;text-align:left}.snapshot-table-month:hover,.snapshot-table-month.is-selected{background:rgba(var(--v-theme-primary),.1);color:rgb(var(--v-theme-primary))}.snapshot-table-month:focus-visible{outline:2px solid rgb(var(--v-theme-primary));outline-offset:2px}@media(max-width:600px){.snapshot-context{align-items:flex-start;flex-direction:column}.snapshot-annual{padding:18px}.snapshot-annual-values{flex-direction:column}.snapshot-summary strong{font-size:23px}}
 </style>

@@ -4,6 +4,7 @@ import {
   DataZoomComponent,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TooltipComponent,
 } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -15,6 +16,7 @@ use([
   PieChart,
   GridComponent,
   LegendComponent,
+  MarkLineComponent,
   TooltipComponent,
   DataZoomComponent,
 ])

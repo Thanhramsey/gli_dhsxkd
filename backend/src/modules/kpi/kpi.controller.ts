@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiCookieAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { KpiQueryDto } from './kpi-query.dto.js';
@@ -15,8 +15,8 @@ export class KpiController {
 
   @Get('latest-month')
   @ApiOperation({ summary: 'Tháng có dữ liệu KPI gần nhất' })
-  latestMonth() {
-    return this.service.latestMonth();
+  latestMonth(@Query('procedure') procedure?: string) {
+    return this.service.latestMonth(procedure);
   }
 
   @Post('summary')
@@ -35,5 +35,11 @@ export class KpiController {
   @ApiOperation({ summary: 'Tỷ lệ ngừng phát sinh cước Fiber/MyTV theo đơn vị' })
   psc(@Body() input: KpiPscQueryDto) {
     return this.service.psc(input);
+  }
+
+  @Post('maintenance')
+  @ApiOperation({ summary: 'Doanh thu duy trì Fiber và MyTV theo đơn vị' })
+  maintenance(@Body() input: KpiQueryDto) {
+    return this.service.maintenance(input.month);
   }
 }

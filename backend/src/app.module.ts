@@ -20,7 +20,7 @@ import { KpiModule } from './modules/kpi/kpi.module.js';
     ConfigModule.forRoot({
       isGlobal: true,
       cache: true,
-      envFilePath: ['.env.local', '.env'],
+      envFilePath: process.env.NODE_ENV === 'production' ? ['.env.production'] : ['.env.local', '.env'],
       load: [appConfig, databaseConfig],
       validate: validateEnvironment,
     }),

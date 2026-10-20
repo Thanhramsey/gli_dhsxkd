@@ -107,77 +107,162 @@ END TONG_HOP_KPI_BRCD;
     ------------------------------------------------------------------
     -- 2. DOANH THU THUC TE MYTV TỪ ĐÀU NĂM ĐẾN THÁNG LẤY
     -- P_THANG: YYYYMM, vi du 202608
-PROCEDURE TONG_HOP_KPI_MYTV
-(
-    P_TUNGAY  IN VARCHAR2,
-    P_DENNGAY IN VARCHAR2,
-    P_RESULT  OUT SYS_REFCURSOR
-)
+PROCEDURE TONG_HOP_KPI_MYTV (P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
 IS
-    V_THANG_BD   DATE;
-    V_THANG_KT   DATE;
-    V_TUNGAY     NUMBER;
-    V_DENNGAY    NUMBER;
-    V_SO_THANG   PLS_INTEGER;
-    V_PIVOT_COLS VARCHAR2(32767);
-    V_SQL        VARCHAR2(32767);
+    V_THANG_BD          DATE;
+    V_THANG_KT          DATE;
+    V_THANG_HIEN_TAI    DATE;
+    V_THANG_DULIEU      VARCHAR2(6);
+    V_SO_THANG          PLS_INTEGER;
+
+    V_COUNT             PLS_INTEGER := 0;
+    V_COUNT_DA_CO       PLS_INTEGER := 0;
+    V_SO_DONG_INSERT    PLS_INTEGER := 0;
+
 BEGIN
-    -- 1. Kiem tra ngay dau vao
-    IF P_TUNGAY IS NULL OR P_DENNGAY IS NULL THEN
-        RAISE_APPLICATION_ERROR(-20001, 'Ngay khong duoc de trong');
+    ------------------------------------------------------------
+    -- 1. KIEM TRA NGAY DAU VAO
+    -- Tong hop tu dau nam den thang P_TUNGAY
+    ------------------------------------------------------------
+    IF P_TUNGAY IS NULL THEN RAISE_APPLICATION_ERROR(-20001,'P_TUNGAY khong duoc de trong');
     END IF;
+
     BEGIN
-        V_THANG_BD :=TRUNC(TO_DATE(P_TUNGAY, 'FXDD/MM/YYYY'), 'MM');
-        V_THANG_KT :=TRUNC(TO_DATE(P_DENNGAY, 'FXDD/MM/YYYY'), 'MM');
+        V_THANG_KT := TRUNC(TO_DATE(P_TUNGAY, 'FXDD/MM/YYYY'), 'MM');
+        V_THANG_BD := TRUNC(V_THANG_KT, 'YYYY');
     EXCEPTION
-        WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20002, 'Ngay phai theo DD/MM/YYYY');
+        WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20002,'P_TUNGAY phai theo dinh dang DD/MM/YYYY');
     END;
-    -- 2. Kiem tra khoang thoi gian
-    IF V_THANG_BD > V_THANG_KT THEN
-        RAISE_APPLICATION_ERROR(-20003, 'Tu ngay phai nho hon den ngay');
+
+    IF P_DENNGAY IS NOT NULL THEN
+        BEGIN
+            DECLARE
+                V_NGAY_KIEM_TRA DATE;
+            BEGIN
+                V_NGAY_KIEM_TRA := TO_DATE(P_DENNGAY, 'FXDD/MM/YYYY');
+            END;
+        EXCEPTION
+            WHEN OTHERS THEN RAISE_APPLICATION_ERROR(-20003,'P_DENNGAY phai theo dinh dang DD/MM/YYYY');
+        END;
     END IF;
-    V_TUNGAY :=TO_NUMBER(TO_CHAR(V_THANG_BD, 'YYYYMMDD'));
-    V_DENNGAY :=TO_NUMBER(TO_CHAR(V_THANG_KT, 'YYYYMMDD'));
-    V_SO_THANG :=TRUNC(MONTHS_BETWEEN(V_THANG_KT, V_THANG_BD)) + 1;
-    -- 3. Tao danh sach cot PIVOT dong
-    SELECT LISTAGG(
-               '(''SL_TB'', ' || KY_CUOC ||
-               ') AS SL_TB_' || KY_CUOC ||
-               ', (''DOANH_THU'', ' || KY_CUOC ||
-               ') AS DOANH_THU_' || KY_CUOC,
-               ','
-           ) WITHIN GROUP (ORDER BY KY_CUOC)
-      INTO V_PIVOT_COLS
-      FROM (
-          SELECT TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD') AS KY_CUOC
-            FROM DUAL
-          CONNECT BY LEVEL <= V_SO_THANG);
-    -- 4. Tao SQL dong
-    V_SQL :=
-        'SELECT ''Biểu đồ biểu diễn theo tháng của MYTV'' AS BIEUDO, P.* ' ||
-        'FROM (
-            SELECT CHI_TIEU, KY_CUOC, GIA_TRI
-            FROM (
-                SELECT A.KY_CUOC,
-                       COUNT(DISTINCT A.THUEBAO_ID) AS SL_TB,
-                       SUM(A.NOGOC) AS DOANH_THU
-                  FROM V_CT_NO_BCSS A
-                 WHERE A.KHOANMUCTT_ID NOT IN
-                       (452, 3427, 3428, 3429, 3430)
-                   AND NOT EXISTS (
-                       SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID)
-                   AND A.LOAITB_ID = 61 AND A.KY_CUOC BETWEEN :B_TUNGAY AND :B_DENNGAY
-                 GROUP BY A.KY_CUOC )
-            UNPIVOT (
-                GIA_TRI FOR CHI_TIEU IN (
-                    SL_TB AS ''SL_TB'',DOANH_THU AS ''DOANH_THU'')))
-        PIVOT (
-            SUM(GIA_TRI)
-            FOR (CHI_TIEU, KY_CUOC) IN (' ||
-            V_PIVOT_COLS || ')) P';
-    -- 5. Mo cursor
-    OPEN P_RESULT FOR V_SQL
-        USING V_TUNGAY, V_DENNGAY;
+
+    V_THANG_DULIEU := TO_CHAR(V_THANG_KT, 'YYYYMM');
+    V_SO_THANG := TRUNC(MONTHS_BETWEEN(V_THANG_KT, V_THANG_BD)) + 1;
+
+    DBMS_OUTPUT.PUT_LINE('======================================');
+    DBMS_OUTPUT.PUT_LINE( 'THANG_DULIEU = ' || V_THANG_DULIEU );
+    DBMS_OUTPUT.PUT_LINE( 'TU THANG = ' || TO_CHAR(V_THANG_BD, 'YYYYMM'));
+    DBMS_OUTPUT.PUT_LINE( 'DEN THANG = ' || TO_CHAR(V_THANG_KT, 'YYYYMM'));
+    DBMS_OUTPUT.PUT_LINE(  'TONG SO KY CAN CO = ' || V_SO_THANG);
+
+    ------------------------------------------------------------
+    -- 2. KIEM TRA NGUON CO DU TAT CA KY_CUOC KHONG
+    -- V_COUNT = 0: Tat ca ky deu co du lieu
+    -- V_COUNT > 0: Thieu it nhat mot ky, khong INSERT
+    ------------------------------------------------------------
+    SELECT COUNT(*) INTO V_COUNT FROM(
+        SELECT TO_NUMBER(TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD')) AS KY_CUOC
+        FROM DUAL
+        CONNECT BY LEVEL <= V_SO_THANG) T
+    WHERE NOT EXISTS(
+        SELECT 1 FROM V_CT_NO_BCSS A  WHERE A.KY_CUOC = T.KY_CUOC AND A.LOAITB_ID = 61 AND A.KHOANMUCTT_ID NOT IN (452, 3427, 3428, 3429, 3430)
+          AND NOT EXISTS(SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X  WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID ));
+
+    DBMS_OUTPUT.PUT_LINE('SO KY_CUOC THIEU DU LIEU NGUON = ' || V_COUNT);
+    ------------------------------------------------------------
+    -- 3. NEU THIEU BAT KY KY NAO:
+    -- KHONG INSERT BAT KY DONG NAO
+    ------------------------------------------------------------
+    IF V_COUNT > 0 THEN
+        DBMS_OUTPUT.PUT_LINE('NGUON CHUA DU DU LIEU - KHONG INSERT');
+    ELSE
+    --------------------------------------------------------
+    -- 4. KIEM TRA DOT THANG_DULIEU DA TON TAI CHUA
+    --------------------------------------------------------
+        SELECT COUNT(*)
+        INTO V_COUNT_DA_CO
+        FROM NBH_CDS_NEW.TONGHOP_KPI
+        WHERE KPI = 'F2.2_MYTVFIX_C2' AND THANG_DULIEU = V_THANG_DULIEU;
+
+        DBMS_OUTPUT.PUT_LINE('SO DONG DA CO TRONG DOT = ' || V_COUNT_DA_CO );
+        IF V_COUNT_DA_CO > 0 THEN
+            DBMS_OUTPUT.PUT_LINE(
+                'DOT DA TON TAI - BO QUA TOAN BO INSERT');
+        ELSE
+            ----------------------------------------------------
+            -- 5. INSERT TOAN BO CAC KY CUA DOT
+            -- Chi INSERT khi tat ca ky nguon da day du
+            ----------------------------------------------------
+            INSERT INTO NBH_CDS_NEW.TONGHOP_KPI
+            (BIEUDO,KPI,KY_CUOC,THANG,THANG_DULIEU,DOANH_THU,KE_HOACH_THANG,TY_LE_THANG,DOANH_THU_LK,KE_HOACH_LK_THANG,TY_LE_LK_THANG,KE_HOACH_LK_NAM,TY_LE_LK_NAM, NGAY_CAP_NHAT)
+            WITH CAC_THANG AS
+            (
+                SELECT TO_NUMBER(TO_CHAR(ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMMDD')) AS KY_CUOC,
+                    TO_CHAR( ADD_MONTHS(V_THANG_BD, LEVEL - 1),'YYYYMM') AS THANG
+                FROM DUAL
+                CONNECT BY LEVEL <= V_SO_THANG),DOANH_THU AS
+                  (SELECT
+                    A.KY_CUOC,SUM(NVL(A.NOGOC, 0)) AS DOANH_THU
+                FROM V_CT_NO_BCSS A
+                INNER JOIN CAC_THANG T
+                    ON T.KY_CUOC = A.KY_CUOC
+                WHERE A.KHOANMUCTT_ID NOT IN(452, 3427, 3428, 3429, 3430)
+                  AND NOT EXISTS(SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X
+                      WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID)AND A.LOAITB_ID = 61 GROUP BY A.KY_CUOC ),
+        KE_HOACH AS
+            (SELECT B.THANG,SUM(NVL(B.KE_HOACH_THANG, 0))AS KE_HOACH_THANG,
+                    SUM(NVL(B.KE_HOACH_LK_THANG, 0)) AS KE_HOACH_LK_THANG,
+                    SUM(NVL(B.KE_HOACH_NAM, 0)) AS KE_HOACH_LK_NAM
+                FROM GLI_KE_HOACH B
+                INNER JOIN CAC_THANG T ON T.THANG = B.THANG
+                WHERE B.KPI = 'F1.MYTV_C2' AND B.MA_DV='237' GROUP BY B.THANG ),
+        TONG_HOP AS
+            ( SELECT T.KY_CUOC, T.THANG, 'Tổng doanh thu Dịch vụ MyTV' AS BIEUDO,
+                    'F1.MYTV_C2' AS KPI, NVL(D.DOANH_THU, 0) AS DOANH_THU,
+                    NVL(K.KE_HOACH_THANG, 0)  AS KE_HOACH_THANG,
+                    NVL(K.KE_HOACH_LK_THANG, 0) AS KE_HOACH_LK_THANG,
+                    NVL(K.KE_HOACH_LK_NAM, 0) AS KE_HOACH_LK_NAM
+                FROM CAC_THANG T
+                LEFT JOIN DOANH_THU D ON D.KY_CUOC = T.KY_CUOC
+                LEFT JOIN KE_HOACH K  ON K.THANG = T.THANG ),
+        TINH_LUY_KE AS
+            ( SELECT T.*, SUM(T.DOANH_THU) OVER( PARTITION BY SUBSTR(T.THANG, 1, 4) ORDER BY T.KY_CUOC ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) AS DOANH_THU_LK
+                FROM TONG_HOP T),
+        DU_LIEU AS
+            ( SELECT BIEUDO, KPI, KY_CUOC, THANG, DOANH_THU, KE_HOACH_THANG,
+                    ROUND( DOANH_THU / NULLIF(KE_HOACH_THANG, 0) * 100,2 ) AS TY_LE_THANG,
+                    DOANH_THU_LK, KE_HOACH_LK_THANG,
+                    ROUND( DOANH_THU_LK / NULLIF(KE_HOACH_LK_THANG, 0) * 100, 2 ) AS TY_LE_LK_THANG,
+                    KE_HOACH_LK_NAM,
+                    ROUND( DOANH_THU_LK / NULLIF(KE_HOACH_LK_NAM, 0) * 100, 2 ) AS TY_LE_LK_NAM
+                FROM TINH_LUY_KE)
+
+            SELECT D.BIEUDO, D.KPI, D.KY_CUOC, D.THANG, V_THANG_DULIEU, D.DOANH_THU, D.KE_HOACH_THANG, D.TY_LE_THANG,
+                D.DOANH_THU_LK, D.KE_HOACH_LK_THANG, D.TY_LE_LK_THANG, D.KE_HOACH_LK_NAM, D.TY_LE_LK_NAM,  SYSDATE
+            FROM DU_LIEU D;
+
+            V_SO_DONG_INSERT := SQL%ROWCOUNT;
+
+            DBMS_OUTPUT.PUT_LINE('SO DONG INSERT = ' || V_SO_DONG_INSERT );
+        END IF;
+    END IF;
+
+    ------------------------------------------------------------
+    -- 6. TRA DU LIEU CUA DOT THANG_DULIEU
+    ------------------------------------------------------------
+    OPEN P_RESULT FOR
+        SELECT BIEUDO, KPI, KY_CUOC, THANG, THANG_DULIEU, DOANH_THU, KE_HOACH_THANG, TY_LE_THANG, DOANH_THU_LK, KE_HOACH_LK_THANG,
+            TY_LE_LK_THANG, KE_HOACH_LK_NAM, TY_LE_LK_NAM, NGAY_CAP_NHAT
+        FROM NBH_CDS_NEW.TONGHOP_KPI
+        WHERE KPI = 'F1.MYTV_C2' AND THANG_DULIEU = V_THANG_DULIEU
+        ORDER BY KY_CUOC;
+
+    DBMS_OUTPUT.PUT_LINE('HOAN THANH TONG HOP KPI MYTV');
+
+EXCEPTION
+    WHEN OTHERS THEN
+        DBMS_OUTPUT.PUT_LINE('LOI: ' || SQLERRM);
+        RAISE;
 
 END TONG_HOP_KPI_MYTV;
 ------------------------------------------------------------------
@@ -770,13 +855,13 @@ BEGIN
               FROM V_CT_NO_BCSS A
               WHERE A.PHANVUNG_ID = P.PHANVUNG_ID
                 AND A.THUEBAO_ID = P.THUEBAO_ID
-                AND A.LOAITB_ID = 58
+                AND A.LOAITB_ID = 61
           )
         GROUP BY D.MA_DV,
                  TRUNC(P.NGAY_SD, 'MM')
     ),
 
-    /* 7. Danh sach thue bao co PSC FIBER */
+    /* 7. Danh sach thue bao co PSC mytv*/
     PSC_TB AS (
         SELECT DISTINCT
                A.KY_CUOC,
@@ -903,7 +988,7 @@ BEGIN
                ELSE MAX(SUBSTR(K.TEN_DV, 22))
            END AS TEN_DV,
 
-           'FIBER' AS TEN_LOAI,
+           'MYTV' AS TEN_LOAI,
 
            TO_CHAR(
                MAX(K.NGAY_THANG),
@@ -940,4 +1025,433 @@ BEGIN
         K.MA_DV;
 
 END TYLE_NGUNG_PSC_MYTV;
+
+---DT_DUY_TRI_FIBER_MYTV
+PROCEDURE BC_DT_DUY_TRI_FIBER_MYTV(P_TUNGAY  IN VARCHAR2,P_DENNGAY IN VARCHAR2,P_RESULT  OUT SYS_REFCURSOR)
+IS
+    V_TUNGAY DATE;
+    V_THANG  VARCHAR2(20);
+BEGIN
+    /* 1. Chuyển tham số ngày */
+    V_TUNGAY := TO_DATE(P_TUNGAY, 'DD/MM/YYYY');
+    V_THANG  := TO_CHAR(V_TUNGAY, 'YYYYMM');
+
+    /* 2. Mở cursor kết quả */
+    OPEN P_RESULT FOR
+
+    WITH
+    /* 1. Tham số báo cáo */
+    THAM_SO AS (
+        SELECT
+            TRUNC(V_TUNGAY, 'MM') AS THANG_BC,
+            TRUNC(V_TUNGAY, 'YYYY') AS THANG_BD,
+            ADD_MONTHS(TRUNC(V_TUNGAY, 'YYYY'), -1) AS THANG_GOC,
+            EXTRACT(MONTH FROM TRUNC(V_TUNGAY, 'MM')) AS SO_THANG_BC
+        FROM DUAL),
+    /* 2. Danh sách thuê bao và đơn vị */
+    DS_DONVI AS (
+        SELECT /*+ MATERIALIZE */ DISTINCT
+            PHANVUNG_ID,THUEBAO_ID,MA_DV,TEN_DV FROM GLI_THUEBAO_NVKT
+        WHERE MA_DV LIKE '237.3%'
+    ),
+
+    /* 3. Danh sách đơn vị */
+    DONVI AS (
+        SELECT
+            MA_DV,
+            MAX(TEN_DV) AS TEN_DV
+        FROM DS_DONVI
+        GROUP BY MA_DV
+    ),
+
+    /* 4. Tổng hợp dữ liệu cước từ tháng 12 năm trước
+          đến tháng báo cáo */
+    CT_CUOC AS (
+        SELECT /*+ MATERIALIZE */
+            A.KY_CUOC,
+            A.PHANVUNG_ID,
+            A.THUEBAO_ID,
+            A.LOAITB_ID,
+            SUM(A.NOGOC) AS NOGOC
+        FROM V_CT_NO_BCSS A
+        CROSS JOIN THAM_SO S
+        WHERE A.LOAITB_ID IN (58, 61)
+          AND A.KY_CUOC >= TO_NUMBER(
+              TO_CHAR(S.THANG_GOC, 'YYYYMMDD')
+          )
+          AND A.KY_CUOC <= TO_NUMBER(
+              TO_CHAR(S.THANG_BC, 'YYYYMMDD')
+          )
+          AND A.KHOANMUCTT_ID NOT IN (
+              452, 3427, 3428, 3429, 3430
+          )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM VI_KHOANMUC_TT_TRATRUOC X
+              WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID
+          )
+        GROUP BY
+            A.KY_CUOC,
+            A.PHANVUNG_ID,
+            A.THUEBAO_ID,
+            A.LOAITB_ID
+    ),
+
+    /* 5. Doanh thu gốc theo thuê bao và loại dịch vụ
+          Loại thuê bao bị cắt trong tháng gốc */
+    DT_GOC_TB AS (
+        SELECT
+            C.PHANVUNG_ID,
+            C.THUEBAO_ID,
+            C.LOAITB_ID,
+            C.NOGOC AS DOANH_THU
+        FROM CT_CUOC C
+        CROSS JOIN THAM_SO S
+        WHERE C.KY_CUOC = TO_NUMBER(
+            TO_CHAR(S.THANG_GOC, 'YYYYMMDD')
+        )
+          AND NOT EXISTS (
+              SELECT 1
+              FROM NBH_TB_HUY Y
+              WHERE Y.PHANVUNG_ID = C.PHANVUNG_ID
+                AND Y.THUEBAO_ID = C.THUEBAO_ID
+                AND Y.NGAY_CAT >= S.THANG_GOC
+                AND Y.NGAY_CAT < ADD_MONTHS(
+                    S.THANG_GOC, 1
+                )
+          )
+    ),
+
+    /* 6. Tổng hợp doanh thu và đếm thuê bao gốc Theo tổ hợp PHANVUNG_ID + THUEBAO_ID */
+    DT_GOC_LOAI AS (
+        SELECT
+            D.MA_DV,
+            D.TEN_DV,
+            G.LOAITB_ID,
+            SUM(G.DOANH_THU) AS DT_GOC,
+            COUNT(*) AS SL_TB_GOC
+        FROM (
+            SELECT
+                PHANVUNG_ID,
+                THUEBAO_ID,
+                LOAITB_ID,
+                SUM(DOANH_THU) AS DOANH_THU
+            FROM DT_GOC_TB
+            GROUP BY
+                PHANVUNG_ID,
+                THUEBAO_ID,
+                LOAITB_ID
+        ) G
+        JOIN DS_DONVI D
+          ON D.PHANVUNG_ID = G.PHANVUNG_ID
+         AND D.THUEBAO_ID = G.THUEBAO_ID
+        GROUP BY
+            D.MA_DV,
+            D.TEN_DV,
+            G.LOAITB_ID
+    ),
+
+    /* 7. Tổng hợp doanh thu, số thuê bao và ARPU */
+    TONG_HOP AS (
+        SELECT
+            MA_DV,
+            MAX(TEN_DV) AS TEN_DV,
+
+            SUM(
+                CASE WHEN LOAITB_ID = 58
+                     THEN DT_GOC ELSE 0 END
+            ) AS DT_GOC_FIBER,
+
+            SUM(
+                CASE WHEN LOAITB_ID = 61
+                     THEN DT_GOC ELSE 0 END
+            ) AS DT_GOC_MYTV,
+
+            SUM(DT_GOC) AS DT_GOC,
+
+            SUM(
+                CASE WHEN LOAITB_ID = 58
+                     THEN SL_TB_GOC ELSE 0 END
+            ) AS SL_TB_FIBER,
+
+            SUM(
+                CASE WHEN LOAITB_ID = 61
+                     THEN SL_TB_GOC ELSE 0 END
+            ) AS SL_TB_MYTV,
+
+            SUM(SL_TB_GOC) AS SL_TB_GOC,
+
+            ROUND(
+                SUM(
+                    CASE WHEN LOAITB_ID = 58
+                         THEN DT_GOC ELSE 0 END
+                )
+                / NULLIF(
+                    SUM(
+                        CASE WHEN LOAITB_ID = 58
+                             THEN SL_TB_GOC ELSE 0 END
+                    ),
+                    0
+                ),
+                2
+            ) AS ARPU_FIBER,
+
+            ROUND(
+                SUM(
+                    CASE WHEN LOAITB_ID = 61
+                         THEN DT_GOC ELSE 0 END
+                )
+                / NULLIF(
+                    SUM(
+                        CASE WHEN LOAITB_ID = 61
+                             THEN SL_TB_GOC ELSE 0 END
+                    ),
+                    0
+                ),
+                2
+            ) AS ARPU_MYTV
+
+        FROM DT_GOC_LOAI
+        GROUP BY MA_DV
+    ),
+
+    /* 8. Sinh tháng từ tháng 01 đến tháng báo cáo */
+    THANG AS (
+        SELECT
+            ADD_MONTHS(
+                S.THANG_BD, LEVEL - 1
+            ) AS NGAY_THANG
+        FROM THAM_SO S
+        CONNECT BY LEVEL <= S.SO_THANG_BC
+    ),
+
+    /* 9. Danh sách thuê bao có PSC theo tháng */
+    PSC_TB_THANG AS (
+        SELECT DISTINCT
+            D.MA_DV,
+            C.PHANVUNG_ID,
+            C.THUEBAO_ID,
+            C.LOAITB_ID,
+            TRUNC(
+                TO_DATE(
+                    TO_CHAR(C.KY_CUOC),
+                    'YYYYMMDD'
+                ),
+                'MM'
+            ) AS NGAY_THANG
+        FROM CT_CUOC C
+        JOIN DS_DONVI D
+          ON D.PHANVUNG_ID = C.PHANVUNG_ID
+         AND D.THUEBAO_ID = C.THUEBAO_ID
+    ),
+
+    /* 10. Xác định thuê bao ngưng PSC
+           Có PSC tháng trước nhưng không có PSC tháng hiện tại.
+           Ví dụ kỳ 09/2026: tháng 01 nhân 9,
+           tháng 05 nhân 5, tháng 09 nhân 1. */
+    DS_TB_NGUNG_PSC AS (
+        SELECT DISTINCT
+            D.MA_DV,
+            D.PHANVUNG_ID,
+            D.THUEBAO_ID,
+            P.LOAITB_ID,
+            M.NGAY_THANG AS THANG_NGUNG,
+
+            ADD_MONTHS(
+                M.NGAY_THANG, -1
+            ) AS THANG_CUOC_GHI_NHAN,
+
+            MONTHS_BETWEEN(
+                S.THANG_BC,
+                M.NGAY_THANG
+            ) + 1 AS SO_THANG_MAT
+
+        FROM THANG M
+        CROSS JOIN THAM_SO S
+
+        JOIN PSC_TB_THANG P
+          ON P.NGAY_THANG = ADD_MONTHS(
+              M.NGAY_THANG, -1
+          )
+
+        JOIN DS_DONVI D
+          ON D.PHANVUNG_ID = P.PHANVUNG_ID
+         AND D.THUEBAO_ID = P.THUEBAO_ID
+
+        WHERE NOT EXISTS (
+            SELECT 1
+            FROM PSC_TB_THANG P2
+            WHERE P2.MA_DV = D.MA_DV
+              AND P2.PHANVUNG_ID = P.PHANVUNG_ID
+              AND P2.THUEBAO_ID = P.THUEBAO_ID
+              AND P2.LOAITB_ID = P.LOAITB_ID
+              AND P2.NGAY_THANG = M.NGAY_THANG
+        )
+    ),
+
+    /* 11. Đếm thuê bao ngưng PSC lũy kế  Mỗi thuê bao chỉ đếm một lần trong từng loại */
+    SL_NGUNG_PSC_LOAI AS (
+        SELECT
+            MA_DV,
+            LOAITB_ID,
+            COUNT(*) AS SL_NGUNG_PSC_LK
+        FROM (
+            SELECT DISTINCT
+                MA_DV,
+                LOAITB_ID,
+                PHANVUNG_ID,
+                THUEBAO_ID
+            FROM DS_TB_NGUNG_PSC
+        )
+        GROUP BY
+            MA_DV,
+            LOAITB_ID
+    ),
+
+    /* 12. Doanh thu thực tế tháng trước khi ngưng PSC */
+    DT_NGUNG_PSC_LOAI AS (
+        SELECT
+            N.MA_DV,
+            N.LOAITB_ID,
+            SUM(C.NOGOC) AS DT_NGUNG_PSC_LK
+        FROM DS_TB_NGUNG_PSC N
+        JOIN CT_CUOC C
+          ON C.PHANVUNG_ID = N.PHANVUNG_ID
+         AND C.THUEBAO_ID = N.THUEBAO_ID
+         AND C.LOAITB_ID = N.LOAITB_ID
+         AND C.KY_CUOC = TO_NUMBER(
+             TO_CHAR(
+                 N.THANG_CUOC_GHI_NHAN,
+                 'YYYYMMDD'
+             )
+         )
+        GROUP BY
+            N.MA_DV,
+            N.LOAITB_ID
+    ),
+
+    /* 13. Tổng hợp số thuê bao ngưng và doanh thu thực tế */
+    NGUNG_TONG_HOP AS (
+        SELECT
+            D.MA_DV,
+
+            NVL(
+                MAX(
+                    CASE WHEN S.LOAITB_ID = 58
+                         THEN S.SL_NGUNG_PSC_LK END
+                ),
+                0
+            ) AS SL_NGUNG_FIBER_LK,
+
+            NVL(
+                MAX(
+                    CASE WHEN S.LOAITB_ID = 61
+                         THEN S.SL_NGUNG_PSC_LK END
+                ),
+                0
+            ) AS SL_NGUNG_MYTV_LK,
+
+            NVL(
+                MAX(
+                    CASE WHEN C.LOAITB_ID = 58
+                         THEN C.DT_NGUNG_PSC_LK END
+                ),
+                0
+            ) AS DT_NGUNG_FIBER_LK,
+
+            NVL(
+                MAX(
+                    CASE WHEN C.LOAITB_ID = 61
+                         THEN C.DT_NGUNG_PSC_LK END
+                ),
+                0
+            ) AS DT_NGUNG_MYTV_LK
+
+        FROM DONVI D
+        LEFT JOIN SL_NGUNG_PSC_LOAI S
+          ON S.MA_DV = D.MA_DV
+        LEFT JOIN DT_NGUNG_PSC_LOAI C
+          ON C.MA_DV = D.MA_DV
+         AND C.LOAITB_ID = S.LOAITB_ID
+        GROUP BY D.MA_DV
+    ),
+
+    /* 14. Doanh thu hủy ước tính theo ARPU */
+    DT_HUY_ARPU AS (
+        SELECT
+            N.MA_DV,
+
+            SUM(
+                CASE WHEN N.LOAITB_ID = 58
+                     THEN NVL(T.ARPU_FIBER, 0)
+                          * N.SO_THANG_MAT
+                     ELSE 0 END
+            ) AS DT_HUY_FIBER,
+
+            SUM(
+                CASE WHEN N.LOAITB_ID = 61
+                     THEN NVL(T.ARPU_MYTV, 0)
+                          * N.SO_THANG_MAT
+                     ELSE 0 END
+            ) AS DT_HUY_MYTV
+
+        FROM DS_TB_NGUNG_PSC N
+        JOIN TONG_HOP T
+          ON T.MA_DV = N.MA_DV
+        GROUP BY N.MA_DV
+    )
+
+    /* 15. Kết quả cuối cùng */
+    SELECT
+        T.MA_DV,
+        SUBSTR(T.TEN_DV, 22) AS TEN_DV,
+        'FIBER+MYTV' AS TEN_LOAI,
+        TO_CHAR(S.THANG_BC, 'MM/YYYY') AS THANG,
+
+        /* Doanh thu gốc */
+        T.DT_GOC_FIBER,T.DT_GOC_MYTV,T.DT_GOC,
+
+        /* Doanh thu gốc lũy kế */
+        T.DT_GOC_FIBER * S.SO_THANG_BC AS DT_GOC_LK_FIBER,
+        T.DT_GOC_MYTV * S.SO_THANG_BC  AS DT_GOC_LK_MYTV,
+        T.DT_GOC * S.SO_THANG_BC       AS DT_GOC_LUY_KE,
+
+        /* Số thuê bao tháng gốc */
+        T.SL_TB_FIBER,T.SL_TB_MYTV,T.SL_TB_GOC,
+
+        /* ARPU theo loại */
+        T.ARPU_FIBER,T.ARPU_MYTV,
+
+        /* Số thuê bao ngưng PSC lũy kế */
+        NVL(N.SL_NGUNG_FIBER_LK, 0) AS SL_NGUNG_FIBER_LK,
+        NVL(N.SL_NGUNG_MYTV_LK, 0)  AS SL_NGUNG_MYTV_LK,
+        NVL(N.SL_NGUNG_FIBER_LK, 0) + NVL(N.SL_NGUNG_MYTV_LK, 0) AS SL_NGUNG_PSC_LK,
+
+        /* Doanh thu thực tế tháng trước khi ngưng */
+        NVL(N.DT_NGUNG_FIBER_LK, 0) AS DT_NGUNG_FIBER_LK,
+        NVL(N.DT_NGUNG_MYTV_LK, 0)  AS DT_NGUNG_MYTV_LK,
+        NVL(N.DT_NGUNG_FIBER_LK, 0) + NVL(N.DT_NGUNG_MYTV_LK, 0) AS DT_NGUNG_PSC_LK,
+
+        /* Doanh thu hủy ước tính */
+        NVL(H.DT_HUY_FIBER, 0) AS DT_HUY_FIBER,
+        NVL(H.DT_HUY_MYTV, 0)  AS DT_HUY_MYTV,
+        NVL(H.DT_HUY_FIBER, 0)+ NVL(H.DT_HUY_MYTV, 0)            AS DT_HUY_LUY_KE,
+
+        /* Doanh thu duy trì */
+        T.DT_GOC * S.SO_THANG_BC - NVL(H.DT_HUY_FIBER, 0) - NVL(H.DT_HUY_MYTV, 0) AS DT_DUY_TRI,
+
+        /* Tỷ lệ doanh thu duy trì */
+        ROUND((T.DT_GOC * S.SO_THANG_BC - NVL(H.DT_HUY_FIBER, 0) - NVL(H.DT_HUY_MYTV, 0))
+            / NULLIF(T.DT_GOC * S.SO_THANG_BC,0) * 100,2 ) AS TYLE_DT_DUY_TRI
+
+    FROM TONG_HOP T
+    CROSS JOIN THAM_SO S
+    LEFT JOIN NGUNG_TONG_HOP N
+      ON N.MA_DV = T.MA_DV
+    LEFT JOIN DT_HUY_ARPU H
+      ON H.MA_DV = T.MA_DV
+    ORDER BY T.MA_DV;
+
+END BC_DT_DUY_TRI_FIBER_MYTV;
+
 END MA_KPI_GLI_TONG;
