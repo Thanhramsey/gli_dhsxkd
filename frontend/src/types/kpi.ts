@@ -19,6 +19,7 @@ export type KpiTrendProcedure =
   | 'TONG_HOP_KPI_CAM'
   | 'TONG_HOP_KPI_MESH'
   | 'TONG_HOP_KPI_TSL'
+  | 'TONG_HOP_KPI_DITT'
   | 'TONG_HOP_KPI_CNTT'
   | 'TONG_HOP_KPI_VINA_TS'
 

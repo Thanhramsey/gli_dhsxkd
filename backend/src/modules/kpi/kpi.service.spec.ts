@@ -36,7 +36,7 @@ describe('KpiService.trend', () => {
   it.each([
     ['TONG_HOP_KPI_BRCD', 'F1.FIBER_C2'],
     ['TONG_HOP_KPI_MYTV', 'F1.MYTV_C2'],
-    ['TONG_HOP_KPI_TSL', 'F1.DITT_C2'],
+    ['TONG_HOP_KPI_TSL', 'F4.3_C2'],
     ['TONG_HOP_KPI_CNTT', 'F4.1_C2'],
   ] as const)('reads %s from the selected snapshot without invoking a procedure', async (procedure, kpi) => {
     const executeQuery = vi.fn().mockResolvedValue([{

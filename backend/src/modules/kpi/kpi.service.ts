@@ -12,7 +12,8 @@ const SNAPSHOT_KPI_CODES: Readonly<Record<string, string | undefined>> = {
   TONG_HOP_KPI_MYTV: 'F1.MYTV_C2',
   TONG_HOP_KPI_CAM: 'F1.CAM_C2',
   TONG_HOP_KPI_MESH: 'F1.MESH_C2',
-  TONG_HOP_KPI_TSL: 'F1.DITT_C2',
+  TONG_HOP_KPI_DITT: 'F1.DITT_C2',
+  TONG_HOP_KPI_TSL: 'F4.3_C2',
   TONG_HOP_KPI_CNTT: 'F4.1_C2',
 };
 
@@ -128,7 +129,7 @@ export class KpiService {
              UNION ALL
              SELECT MAX(TRIM(TO_CHAR(THANG_DULIEU))) AS LATEST_MONTH
                FROM NBH_CDS_NEW.TONGHOP_KPI
-              WHERE KPI IN ('F1.MYTV_C2', 'F1.FIBER_C2', 'F1.DITT_C2', 'F4.1_C2', 'F1.CAM_C2', 'F1.MESH_C2')
+              WHERE KPI IN ('F1.MYTV_C2', 'F1.FIBER_C2', 'F1.DITT_C2', 'F4.3_C2', 'F4.1_C2', 'F1.CAM_C2', 'F1.MESH_C2')
            )`,
       );
     const value = String(row?.LATEST_MONTH ?? '').trim();

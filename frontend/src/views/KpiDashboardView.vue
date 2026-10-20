@@ -15,11 +15,12 @@ const month = computed(() => `${year.value}-${String(monthNumber.value).padStart
 type KpiMaintenanceProcedure = 'BC_DT_DUY_TRI_FIBER_MYTV'
 const procedureOptions: { title: string; value: 'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure | KpiMaintenanceProcedure }[] = [
   { title: 'Tổng hợp KPI', value: 'TONG_HOP_KPI' },
-  { title: 'BRCD (Fiber + Cố định)', value: 'TONG_HOP_KPI_BRCD' },
+  { title: 'BRCD (Fiber)', value: 'TONG_HOP_KPI_BRCD' },
   { title: 'MyTV', value: 'TONG_HOP_KPI_MYTV' },
   { title: 'Camera', value: 'TONG_HOP_KPI_CAM' },
   { title: 'Mesh', value: 'TONG_HOP_KPI_MESH' },
   { title: 'TSL', value: 'TONG_HOP_KPI_TSL' },
+  { title: 'Internet trực tiếp', value: 'TONG_HOP_KPI_DITT' },
   { title: 'CNTT phân bổ', value: 'TONG_HOP_KPI_CNTT' },
   { title: 'Vina trả sau', value: 'TONG_HOP_KPI_VINA_TS' },
   { title: 'Tỷ lệ ngừng PSC Fiber', value: 'TYLE_NGUNG_PSC_FIBER' },
@@ -78,7 +79,8 @@ const snapshotKpiCodes: Readonly<Record<string, string | undefined>> = {
   TONG_HOP_KPI_MYTV: 'F1.MYTV_C2',
   TONG_HOP_KPI_CAM: 'F1.CAM_C2',
   TONG_HOP_KPI_MESH: 'F1.MESH_C2',
-  TONG_HOP_KPI_TSL: 'F1.DITT_C2',
+  TONG_HOP_KPI_DITT: 'F1.DITT_C2',
+  TONG_HOP_KPI_TSL: 'F4.3_C2',
   TONG_HOP_KPI_CNTT: 'F4.1_C2',
 }
 const snapshotKpiCode = computed(() => snapshotKpiCodes[selectedProcedure.value] ?? '')
