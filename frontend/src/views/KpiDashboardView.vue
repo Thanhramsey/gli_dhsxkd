@@ -71,6 +71,13 @@ const monthLabel = computed(() => {
 const totalActual = computed(() => rows.value.reduce((sum, row) => sum + (cumulativeMode.value ? row.cumulativeActual : row.monthlyActual), 0))
 const totalPlan = computed(() => rows.value.reduce((sum, row) => sum + (cumulativeMode.value ? row.cumulativePlan : row.monthlyPlan), 0))
 const completion = computed(() => totalPlan.value ? totalActual.value / totalPlan.value * 100 : null)
+function completionColor(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '#718397'
+  if (value < 70) return '#c62828'
+  if (value <= 90) return '#a66b00'
+  if (value <= 100) return '#0067b1'
+  return '#218349'
+}
 const selectedProcedureLabel = computed(() => procedureOptions.find(option => option.value === selectedProcedure.value)?.title ?? '')
 const isPscProcedure = (procedure: string): procedure is KpiPscProcedure => procedure === 'TYLE_NGUNG_PSC_FIBER' || procedure === 'TYLE_NGUNG_PSC_MYTV'
 const isMaintenanceProcedure = (procedure: string): procedure is KpiMaintenanceProcedure => procedure === 'BC_DT_DUY_TRI_FIBER_MYTV'
@@ -448,7 +455,7 @@ const cumulativeRateOption = computed(() => ({
   grid: { left: 200, right: 58, top: 22, bottom: 42 },
   xAxis: { type: 'value', min: 0, max: (range: { max: number }) => Math.max(120, Math.ceil(range.max / 20) * 20), axisLabel: { color: '#526a7b', formatter: '{value}%' }, splitLine: { lineStyle: { color: '#e8eef3' } } },
   yAxis: { type: 'category', inverse: true, data: cumulativeRateRows.value.map(row => row.name), axisLabel: { color: '#526a7b', width: 180, overflow: 'truncate' }, axisTick: { show: false } },
-  series: [{ type: 'bar', barMaxWidth: 26, data: cumulativeRateRows.value.map(row => ({ value: row.cumulativeRate, plan: row.cumulativePlan, actual: row.cumulativeActual, itemStyle: { color: row.cumulativeRate != null && row.cumulativeRate >= 100 ? '#0c8b8d' : '#e07b34', borderRadius: [0, 5, 5, 0] } })), label: { show: true, position: 'right', color: '#244252', formatter: ({ value }: { value: number | null }) => value == null ? '' : `${numberFormat.format(value)}%` }, markLine: { silent: true, symbol: 'none', label: { formatter: 'Mốc 100%', color: '#526a7b', position: 'insideEndTop' }, lineStyle: { color: '#526a7b', type: 'dashed', width: 2 }, data: [{ xAxis: 100 }] } }],
+  series: [{ type: 'bar', barMaxWidth: 26, data: cumulativeRateRows.value.map(row => ({ value: row.cumulativeRate, plan: row.cumulativePlan, actual: row.cumulativeActual, itemStyle: { color: completionColor(row.cumulativeRate), borderRadius: [0, 5, 5, 0] } })), label: { show: true, position: 'right', color: '#244252', formatter: ({ value }: { value: number | null }) => value == null ? '' : `${numberFormat.format(value)}%` }, markLine: { silent: true, symbol: 'none', label: { formatter: 'Mốc 100%', color: '#526a7b', position: 'insideEndTop' }, lineStyle: { color: '#526a7b', type: 'dashed', width: 2 }, data: [{ xAxis: 100 }] } }],
 }))
 
 const trendRevenueOption = computed(() => ({
@@ -483,7 +490,7 @@ function snapshotTooltip(row: KpiTrendRow | undefined, cumulative = false) {
 }
 const snapshotMonthlyOption = computed(() => {
   const isRate = snapshotMonthlyView.value === 'rate'
-  const point = (row: KpiTrendRow, value: number | null | undefined) => ({ value, itemStyle: { opacity: selectedSnapshotMonth.value && selectedSnapshotMonth.value !== row.month ? 0.4 : 1 } })
+  const point = (row: KpiTrendRow, value: number | null | undefined) => ({ value, itemStyle: { ...(isRate ? { color: completionColor(value) } : {}), opacity: selectedSnapshotMonth.value && selectedSnapshotMonth.value !== row.month ? 0.4 : 1 } })
   return {
   tooltip: { trigger: 'axis', renderMode: 'richText', confine: true, axisPointer: { type: 'shadow' }, formatter: (items: Array<{ dataIndex: number }>) => snapshotTooltip(snapshotMonthlyRows.value[items[0]?.dataIndex ?? -1]) },
   legend: { top: 4, textStyle: { color: '#526a7b' } },
@@ -695,7 +702,7 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
       <v-row class="summary-row">
         <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>{{ cumulativeMode ? 'K\u1ebe HO\u1ea0CH L\u0168Y K\u1ebe' : 'K\u1ebe HO\u1ea0CH TH\u00c1NG' }}</small><strong>{{ numberFormat.format(totalPlan) }}</strong></v-card></v-col>
         <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>{{ cumulativeMode ? 'TH\u1ef0C HI\u1ec6N L\u0168Y K\u1ebe' : 'TH\u1ef0C HI\u1ec6N TH\u00c1NG' }}</small><strong>{{ numberFormat.format(totalActual) }}</strong></v-card></v-col>
-        <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>{{ cumulativeMode ? 'HOÀN THÀNH LŨY KẾ' : 'HOÀN THÀNH' }}</small><strong>{{ completion == null ? '—' : `${numberFormat.format(completion)}%` }}</strong></v-card></v-col>
+        <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>{{ cumulativeMode ? 'HOÀN THÀNH LŨY KẾ' : 'HOÀN THÀNH' }}</small><strong :style="{ color: completionColor(completion) }">{{ completion == null ? '—' : `${numberFormat.format(completion)}%` }}</strong></v-card></v-col>
       </v-row>
       <v-alert v-if="!rows.length" class="mt-4" type="info" variant="tonal">Không có dữ liệu KPI trong {{ monthLabel }}.</v-alert>
       <v-row v-if="rows.length" class="chart-row detail-row">
@@ -724,8 +731,8 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
               <template #item.monthlyActual="{ value }">{{ numberFormat.format(value) }}</template>
               <template #item.cumulativePlan="{ value }">{{ numberFormat.format(value) }}</template>
               <template #item.cumulativeActual="{ value }">{{ numberFormat.format(value) }}</template>
-              <template #item.monthlyRate="{ value }">{{ value == null ? '—' : numberFormat.format(value) + '%' }}</template>
-              <template #item.cumulativeRate="{ value }">{{ value == null ? '—' : numberFormat.format(value) + '%' }}</template>
+              <template #item.monthlyRate="{ value }"><span :style="{ color: completionColor(value), fontWeight: 600 }">{{ value == null ? '—' : numberFormat.format(value) + '%' }}</span></template>
+              <template #item.cumulativeRate="{ value }"><span :style="{ color: completionColor(value), fontWeight: 600 }">{{ value == null ? '—' : numberFormat.format(value) + '%' }}</span></template>
             </v-data-table>
           </v-card>
         </v-col>
@@ -890,9 +897,9 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
         <v-row class="summary-row">
           <template v-if="isSnapshotTrend">
             <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>DOANH THU THÁNG</small><strong>{{ snapshotSummaryTrend?.revenue == null ? '—' : formatRevenue(snapshotSummaryTrend.revenue) }}</strong><p :class="snapshotRevenueChange && snapshotRevenueChange.delta < 0 ? 'snapshot-negative' : ''"><v-icon :icon="snapshotRevenueChange && snapshotRevenueChange.delta > 0 ? 'mdi-trending-up' : snapshotRevenueChange && snapshotRevenueChange.delta < 0 ? 'mdi-trending-down' : 'mdi-minus'" size="15" /> {{ signedChange(snapshotRevenueChange, 'revenue') }}</p><span>So với tháng trước</span></v-card></v-col>
-            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>HOÀN THÀNH THÁNG</small><strong :class="snapshotSummaryTrend?.completionRate != null && snapshotSummaryTrend.completionRate < 100 ? 'snapshot-negative' : ''">{{ snapshotSummaryTrend?.completionRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.completionRate)}%` }}</strong><p>{{ snapshotGap(snapshotSummaryTrend?.revenue, snapshotSummaryTrend?.plan) }}</p><span>Kế hoạch: {{ snapshotSummaryTrend?.plan == null ? '—' : formatRevenue(snapshotSummaryTrend.plan) }}</span></v-card></v-col>
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>HOÀN THÀNH THÁNG</small><strong :style="{ color: completionColor(snapshotSummaryTrend?.completionRate) }">{{ snapshotSummaryTrend?.completionRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.completionRate)}%` }}</strong><p>{{ snapshotGap(snapshotSummaryTrend?.revenue, snapshotSummaryTrend?.plan) }}</p><span>Kế hoạch: {{ snapshotSummaryTrend?.plan == null ? '—' : formatRevenue(snapshotSummaryTrend.plan) }}</span></v-card></v-col>
             <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>DOANH THU LŨY KẾ</small><strong>{{ snapshotSummaryTrend?.cumulativeRevenue == null ? '—' : formatRevenue(snapshotSummaryTrend.cumulativeRevenue) }}</strong><p>Kế hoạch: {{ snapshotSummaryTrend?.cumulativePlan == null ? '—' : formatRevenue(snapshotSummaryTrend.cumulativePlan) }}</p><span>Từ đầu năm đến {{ snapshotViewingLabel }}</span></v-card></v-col>
-            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>HOÀN THÀNH LŨY KẾ</small><strong :class="snapshotSummaryTrend?.cumulativeRate != null && snapshotSummaryTrend.cumulativeRate < 100 ? 'snapshot-negative' : ''">{{ snapshotSummaryTrend?.cumulativeRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.cumulativeRate)}%` }}</strong><p>{{ snapshotGap(snapshotSummaryTrend?.cumulativeRevenue, snapshotSummaryTrend?.cumulativePlan) }}</p><span>So với kế hoạch lũy kế đến tháng</span></v-card></v-col>
+            <v-col cols="12" sm="6" lg="3"><v-card class="summary-card snapshot-summary" elevation="0"><small>HOÀN THÀNH LŨY KẾ</small><strong :style="{ color: completionColor(snapshotSummaryTrend?.cumulativeRate) }">{{ snapshotSummaryTrend?.cumulativeRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.cumulativeRate)}%` }}</strong><p>{{ snapshotGap(snapshotSummaryTrend?.cumulativeRevenue, snapshotSummaryTrend?.cumulativePlan) }}</p><span>So với kế hoạch lũy kế đến tháng</span></v-card></v-col>
           </template>
           <template v-else>
             <v-col cols="12" sm="4"><v-card class="summary-card" elevation="0"><small>DOANH THU THÁNG </small><strong>{{ currentTrend?.revenue == null ? '—' : formatRevenue(currentTrend.revenue) }}</strong></v-card></v-col>
@@ -953,10 +960,10 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
           </v-row>
           <template v-if="isSnapshotTrend">
             <v-card class="snapshot-annual" elevation="0">
-              <div class="snapshot-annual-head"><div><strong>Tiến độ kế hoạch năm</strong><span>Lũy kế đến {{ snapshotViewingLabel }}</span></div><strong class="snapshot-annual-rate">{{ snapshotSummaryTrend?.annualRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.annualRate)}%` }}</strong></div>
-              <div v-if="snapshotAnnualScale" class="snapshot-annual-track" role="img" :aria-label="`Doanh thu lũy kế ${formatRevenue(snapshotSummaryTrend!.cumulativeRevenue!)}; kế hoạch năm ${formatRevenue(snapshotSummaryTrend!.annualPlan!)}; hoàn thành ${snapshotSummaryTrend?.annualRate == null ? 'chưa có tỷ lệ' : `${numberFormat.format(snapshotSummaryTrend.annualRate)}%`}`"><div class="snapshot-annual-fill" :style="{ width: `${snapshotAnnualScale.actual}%` }" /><div class="snapshot-annual-target" :style="{ left: `${snapshotAnnualScale.target}%` }" /></div>
+              <div class="snapshot-annual-head"><div><strong>Tiến độ kế hoạch năm</strong><span>Lũy kế đến {{ snapshotViewingLabel }}</span></div><strong class="snapshot-annual-rate" :style="{ color: completionColor(snapshotSummaryTrend?.annualRate) }">{{ snapshotSummaryTrend?.annualRate == null ? '—' : `${numberFormat.format(snapshotSummaryTrend.annualRate)}%` }}</strong></div>
+              <div v-if="snapshotAnnualScale" class="snapshot-annual-track" role="img" :aria-label="`Doanh thu lũy kế ${formatRevenue(snapshotSummaryTrend!.cumulativeRevenue!)}; kế hoạch năm ${formatRevenue(snapshotSummaryTrend!.annualPlan!)}; hoàn thành ${snapshotSummaryTrend?.annualRate == null ? 'chưa có tỷ lệ' : `${numberFormat.format(snapshotSummaryTrend.annualRate)}%`}`"><div class="snapshot-annual-fill" :style="{ width: `${snapshotAnnualScale.actual}%`, backgroundColor: completionColor(snapshotSummaryTrend?.annualRate) }" /><div class="snapshot-annual-target" :style="{ left: `${snapshotAnnualScale.target}%` }" /></div>
               <p v-else class="snapshot-annual-empty">Chưa có đủ số liệu để vẽ tiến độ kế hoạch năm.</p>
-              <div class="snapshot-annual-values"><span><i class="snapshot-legend-actual" /> Đã thực hiện <b>{{ snapshotSummaryTrend?.cumulativeRevenue == null ? '—' : formatRevenue(snapshotSummaryTrend.cumulativeRevenue) }}</b></span><span><i class="snapshot-legend-target" /> Kế hoạch năm <b>{{ snapshotSummaryTrend?.annualPlan == null ? '—' : formatRevenue(snapshotSummaryTrend.annualPlan) }}</b></span><span>{{ snapshotGap(snapshotSummaryTrend?.cumulativeRevenue, snapshotSummaryTrend?.annualPlan) }}</span></div>
+              <div class="snapshot-annual-values"><span><i class="snapshot-legend-actual" :style="{ backgroundColor: completionColor(snapshotSummaryTrend?.annualRate) }" /> Đã thực hiện <b>{{ snapshotSummaryTrend?.cumulativeRevenue == null ? '—' : formatRevenue(snapshotSummaryTrend.cumulativeRevenue) }}</b></span><span><i class="snapshot-legend-target" /> Kế hoạch năm <b>{{ snapshotSummaryTrend?.annualPlan == null ? '—' : formatRevenue(snapshotSummaryTrend.annualPlan) }}</b></span><span>{{ snapshotGap(snapshotSummaryTrend?.cumulativeRevenue, snapshotSummaryTrend?.annualPlan) }}</span></div>
               <small>Vạch đứng là mục tiêu năm. Tiến độ so với kế hoạch đến tháng được thể hiện ở thẻ hoàn thành lũy kế phía trên.</small>
             </v-card>
             <v-alert v-if="snapshotPlanDiscrepancies.length" type="warning" variant="tonal" density="compact" class="snapshot-check">Kế hoạch lũy kế tại {{ snapshotPlanDiscrepancies.join(', ') }} trong nguồn khác tổng kế hoạch các tháng trước đó và tháng hiện tại. Biểu đồ và bảng giữ nguyên số liệu nguồn; cần đối chiếu kế hoạch kỳ này.</v-alert>
@@ -975,12 +982,12 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
               <template #item.month="{ value }"><button type="button" class="snapshot-table-month" :class="{ 'is-selected': value === snapshotSummaryTrend?.month }" :aria-pressed="value === snapshotSummaryTrend?.month" @click="selectedSnapshotMonth = value">Tháng {{ Number(value.slice(5)) }}/{{ value.slice(0, 4) }}</button></template>
               <template #item.plan="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
               <template #item.revenue="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
-              <template #item.completionRate="{ value }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</template>
+              <template #item.completionRate="{ value }"><span :style="{ color: completionColor(value), fontWeight: 600 }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</span></template>
               <template #item.cumulativePlan="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
               <template #item.cumulativeRevenue="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
-              <template #item.cumulativeRate="{ value }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</template>
+              <template #item.cumulativeRate="{ value }"><span :style="{ color: completionColor(value), fontWeight: 600 }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</span></template>
               <template #item.annualPlan="{ value }">{{ value == null ? '—' : numberFormat.format(value) }}</template>
-              <template #item.annualRate="{ value }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</template>
+              <template #item.annualRate="{ value }"><span :style="{ color: completionColor(value), fontWeight: 600 }">{{ value == null ? '—' : `${numberFormat.format(value)}%` }}</span></template>
             </v-data-table>
           </v-card>
           <v-card v-else class="table-card trend-table-card" elevation="0">
