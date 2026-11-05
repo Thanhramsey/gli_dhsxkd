@@ -13,6 +13,21 @@ export interface KpiSummary {
   rows: KpiRow[]
 }
 
+export interface KpiSubscriberMovementRow {
+  centerCode: string
+  centerName: string
+  teamCode: string
+  teamName: string
+  areaCode: string
+  areaName: string
+  values: Record<string, number | null>
+}
+
+export interface KpiSubscriberMovement {
+  month: string
+  rows: KpiSubscriberMovementRow[]
+}
+
 export type KpiTrendProcedure =
   | 'TONG_HOP_KPI_BRCD'
   | 'TONG_HOP_KPI_MYTV'

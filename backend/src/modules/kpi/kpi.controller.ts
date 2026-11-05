@@ -42,4 +42,10 @@ export class KpiController {
   maintenance(@Body() input: KpiQueryDto) {
     return this.service.maintenance(input.month);
   }
+
+  @Post('subscriber-movement')
+  @ApiOperation({ summary: 'Biến động thuê bao theo trung tâm, tổ và địa bàn' })
+  subscriberMovement(@Body() input: KpiQueryDto) {
+    return this.service.subscriberMovement(input.month);
+  }
 }

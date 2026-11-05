@@ -112,6 +112,45 @@ export interface KpiPscRow {
 export class KpiService {
   constructor(private readonly oracleService: OracleService) {}
 
+  async subscriberMovement(month: string) {
+    const [year, monthNumber] = month.split('-').map(Number);
+    const monthText = String(monthNumber).padStart(2, '0');
+    const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+    const result = await this.oracleService.executeProcedure(
+      'NBH_CDS_NEW.GLI_BAOCAO',
+      'TH_TANGGIAMTB_DB',
+      {
+        P_TUNGAY: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: `01/${monthText}/${year}` },
+        P_DENNGAY: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: `${lastDay}/${monthText}/${year}` },
+        P_RS: { dir: oracledb.BIND_OUT, type: oracledb.CURSOR },
+      },
+    );
+    const fields = [
+      ...['CD', 'GP', 'IMS', 'MESH', 'FTTX', 'MYTV'].flatMap(prefix =>
+        ['PT', 'HUY', 'NG', 'KP', 'TT'].map(suffix => `${prefix}_${suffix}`)),
+      'IMS_CD', 'FTTX_PT_GPON', 'FTTX_PT_SW', 'FTTX_PT_CD', 'FTTX_KPTL',
+      'FTTX_H_TD', 'FTTX_HUY_TT', 'MYTV_PT_APP', 'MYTV_KPTL', 'MYTV_H_TD', 'MYTV_HUY_TT',
+    ];
+    const rawRows = result.outBinds?.P_RS;
+    return {
+      month,
+      rows: Array.isArray(rawRows) ? rawRows.map((raw: Record<string, unknown>) => {
+        const text = (key: string) => String(raw[key] ?? '').trim();
+        const values: Record<string, number | null> = {};
+        for (const field of fields) {
+          const value = raw[field];
+          const parsed = value == null || String(value).trim() === '' ? NaN : Number(value);
+          values[field] = Number.isFinite(parsed) ? parsed : null;
+        }
+        return {
+          centerCode: text('MA_TTVT'), centerName: text('TTVT'),
+          teamCode: text('MA_TOVT'), teamName: text('TOVT'),
+          areaCode: text('KHUVUC_ID'), areaName: text('DIA_BAN'), values,
+        };
+      }) : [],
+    };
+  }
+
   async latestMonth(procedure?: string): Promise<{ month: string | null }> {
     const snapshotKpi = procedure ? SNAPSHOT_KPI_CODES[procedure] : undefined;
     const [row] = snapshotKpi

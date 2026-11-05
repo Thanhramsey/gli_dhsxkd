@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import type { EChartsOption } from 'echarts'
+import type { EChartsOption, Payload } from 'echarts'
 import VChart from 'vue-echarts'
 
 const props = defineProps<{ option: Record<string, unknown>; axis: 'x' | 'y'; count: number; anchor?: 'center' | 'end' | 'start' }>()
-const emit = defineEmits<{ click: [event: { dataIndex?: number; seriesIndex?: number; name?: string }] }>()
+const emit = defineEmits<{
+  click: [event: { dataIndex?: number; seriesIndex?: number; name?: string }]
+  legendselectchanged: [event: { name: string; selected: Record<string, boolean> }]
+}>()
 const chart = ref<InstanceType<typeof VChart> | null>(null)
 const range = ref({ start: 0, end: 100 })
 const zoomAnchor = computed(() => {
@@ -48,6 +51,11 @@ function syncRange() {
   if (zoom?.start != null && zoom.end != null) range.value = { start: zoom.start, end: zoom.end }
 }
 
+function forwardLegendSelection(event: Payload) {
+  if (typeof event.name !== 'string' || !event.selected || typeof event.selected !== 'object') return
+  emit('legendselectchanged', { name: event.name, selected: event.selected as Record<string, boolean> })
+}
+
 watch(() => [props.count, props.axis, zoomAnchor.value], () => { range.value = { start: 0, end: 100 } })
 </script>
 
@@ -58,7 +66,7 @@ watch(() => [props.count, props.axis, zoomAnchor.value], () => { range.value = {
       <v-btn icon="mdi-minus" size="x-small" variant="text" color="primary" title="Thu nhỏ" aria-label="Thu nhỏ biểu đồ" :disabled="!canZoomOut" @click="zoom(false)" />
       <v-btn icon="mdi-refresh" size="x-small" variant="text" color="primary" title="Khôi phục" aria-label="Khôi phục biểu đồ" :disabled="!canZoomOut" @click="range = { start: 0, end: 100 }" />
     </div>
-    <VChart ref="chart" class="chart-canvas" :option="chartOption" autoresize @datazoom="syncRange" @click="emit('click', $event)" />
+    <VChart ref="chart" class="chart-canvas" :option="chartOption" autoresize @datazoom="syncRange" @click="emit('click', $event)" @legendselectchanged="forwardLegendSelection" />
   </div>
 </template>
 

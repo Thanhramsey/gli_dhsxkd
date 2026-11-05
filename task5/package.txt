@@ -1,0 +1,649 @@
+CREATE OR REPLACE package body NBH_CDS_NEW.GLI_BAOCAO is
+
+  PROCEDURE TH_TANGGIAMTB_TOKT_TL( P_TUNGAY VARCHAR2, P_DENNGAY VARCHAR2,  P_RS OUT SYS_REFCURSOR) AS
+-- BAOCAO_PHATTRIEN.TH_TANGGIAMTB_TOKT_HPG_TL
+ -- tu ng?y 07/09/2021 thong k? theo ng?y ho?n th?nh (ngay_ht) v? kh?ng t?nh doi tuong d?ng thu , kh?ng t?nh thu? bao chuyen doi v?o trong PTM Fiber
+-- loai bo mega tu 05/2022, do thu? bao kh?ng c?n ton tai tr?n he thong
+--09/06/2022 PTM kh?ng bao gom thu? bao kh?i phuc thanh l? tu 01/05/2022 theo CV 527/VNPT-KHDT
+-- Web ?HSXKD : T?nh h?nh SXKD - Bi?n d?ng thu? bao ( M?u 1)
+
+  BEGIN
+     OPEN P_RS FOR
+
+            SELECT
+
+
+                  ttvt 
+                ,tovt 
+
+                , CD_PT , CD_HUY ,CD_NG ,CD_KP
+                , (CD_PT - CD_HUY) AS CD_TT
+
+                ,GP_PT ,GP_HUY ,GP_NG ,GP_KP
+                , (GP_PT - GP_HUY) AS GP_TT
+
+                , IMS_PT, IMS_CD,  IMS_HUY , IMS_NG ,IMS_KP
+                , (IMS_PT - IMS_HUY) AS IMS_TT
+                , MESH_PT, MESH_HUY , MESH_NG ,MESH_KP
+                , (MESH_PT - MESH_HUY) AS MESH_TT
+                , FTTX_PT AS FTTX_PT , FTTX_PT_GPON
+                , (FTTX_PT - FTTX_PT_GPON ) as  FTTX_PT_SW
+                ,FTTX_PT_CD
+                , FTTX_KPTL
+                , FTTX_HUY
+                , FTTX_H_TD
+                ,(FTTX_HUY-FTTX_H_TD) AS FTTX_HUY_TT
+                , FTTX_NG ,FTTX_KP
+                , (FTTX_PT - FTTX_HUY) AS FTTX_TT
+              /*  , case
+                    when FTTX_PT = 0 then 0 || '%'
+                    else round(FTTX_HUY *100 / FTTX_PT , 2)  || '%'
+                  end FTTX_TL*/
+
+              --   round(FTTX_HUY *100 / (FTTX_PT +FTTX_PT_CD )) as FTTX_TL
+
+                , MYTV_PT ,MYTV_PT_APP, MYTV_KPTL  ,MYTV_HUY
+                ,MYTV_H_TD
+                ,(MYTV_HUY-MYTV_H_TD) AS MYTV_HUY_TT
+                , MYTV_NG ,MYTV_KP
+                , (MYTV_PT - MYTV_HUY) AS MYTV_TT
+          /*      , case
+                    when MYTV_PT = 0 then 0 || '%'
+                    else round(MYTV_HUY *100 / MYTV_PT,2)  || '%'
+                  end MYTV_TL*/
+            -- ,round(MYTV_HUY *100 / MYTV_PT) as MYTV_TL
+  from
+(        -- to tram GLI
+         SELECT
+
+                 ttvt ,tovt
+                , CD_PT , CD_HUY ,CD_NG ,CD_KP
+                ,GP_PT ,GP_HUY ,GP_NG ,GP_KP
+                , IMS_PT, IMS_CD,  IMS_HUY , IMS_NG ,IMS_KP
+                , MESH_PT, MESH_HUY , MESH_NG ,MESH_KP
+                , FTTX_PT AS FTTX_PT , FTTX_PT_GPON
+                ,FTTX_PT_CD , FTTX_KPTL
+                , FTTX_HUY
+                , FTTX_H_TD
+                , FTTX_NG ,FTTX_KP
+                , MYTV_PT ,MYTV_PT_APP , MYTV_KPTL ,MYTV_HUY
+                ,MYTV_H_TD
+                , MYTV_NG ,MYTV_KP
+                  FROM
+
+                 (SELECT
+                                 dvc.ten_dv as ttvt,
+                                 dv.ten_dv as tovt,
+
+                                 /* loaihd_id = 1: LMoi ; 4: thanh ly ; 30: KP thanh ly, 7 : Thay doi dv */
+                                 /*------- co dinh : loaitb_id=1 */
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS CD_PT,
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS CD_HUY,
+                                 --tb.kieuld_id=103 : tam dung su dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =7 and tb.kieuld_id=103 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS CD_NG,
+                                 --tb.kieuld_id=104 : mo tam dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =7 and tb.kieuld_id=104 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS CD_KP,
+
+                                  /* --------gphone : tb.loaitb_id=32 (GP tr? sau) */
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_PT,
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_HUY,
+                                 -- tb.kieuld_id=101 : tam dung su dung gphone
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =7 and tb.kieuld_id= 101 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_NG,
+                                 -- tb.kieuld_id=102 : mo tam dung gphone
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =7 and tb.kieuld_id= 102 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_KP,
+                                    /*------- ims : loaitb_id in (63,77) SIP, SIP trunking */
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_PT,
+
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_HUY,
+                                    SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =6 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_CD,
+                                 --tb.kieuld_id=109 : tam dung su dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =7 and tb.kieuld_id=109 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS IMS_NG,
+                                 --tb.kieuld_id=110 : mo tam dung ims
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =7 and tb.kieuld_id=110 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS IMS_KP,
+                                /*------- mesh : loaitb_id in (210,274)
+            Wifi Mesh: D?ch v? h?p tác cho thuê thi?t b? Wifi Mesh
+            Wifi Mesh TM:   HieuTC 26042021 : Wifi Mesh thuong m?i, TTKD mua các thi?t b? bên ngoài 4 */
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID IN (1, 30) AND
+                      TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_PT,
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 4 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_HUY,
+
+           --tb.kieuld_id=109 : tam dung su dung MESH
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 7 AND
+                      TB.KIEULD_ID = 39 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_NG,
+           --tb.kieuld_id=110 : mo tam dung MESH
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 7 AND
+                      TB.KIEULD_ID = 96 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_KP,
+
+                                 /*-------FTTH  =>loaitbi_id = 58, tb.kieuld_id = 39: Tam dung tb internet, 96 : Mo tam dung */
+                               -- SUM(CASE WHEN tb.loaitb_id=58 and (k.loaihd_id in (1,30) OR  (tb.kieuld_id=182) ) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT,
+                             --   SUM(CASE WHEN tb.loaitb_id=58 and (k.loaihd_id in (1,30)  or  k.kieuld_id=182) and tb.tthd_id=6 and d.loaitbi_id = 3 THEN 1 ELSE 0 END) AS FTTX_PT_GPON,
+
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (1)  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (1) and tb.tthd_id=6 and d.loaitbi_id = 3 THEN 1 ELSE 0 END) AS FTTX_PT_GPON,
+                                SUM(CASE WHEN tb.loaitb_id=58 and (tb.kieuld_id=182) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT_CD,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (30)  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_KPTL,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_HUY,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =4 AND tb.kieuld_id=306  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_H_TD,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =7 and tb.kieuld_id=39 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS FTTX_NG,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =7 and tb.kieuld_id=96 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS FTTX_KP,
+                                 /*-------MYTV: tb.loaitb_id=61, Mytv B2B: 171*/
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_PT,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (1) and tb.tthd_id=6 AND cttb.trangbi_id=7 THEN 1 ELSE 0 END ) AS MYTV_PT_APP,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (30) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_KPTL,
+                                /*SUM(CASE WHEN tb.loaitb_id in (171) and k.loaihd_id in (1,30) and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS MYTV_PT_B2B,*/
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_HUY,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =4 AND k.kieuld_id=306 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_H_TD,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =7 and  tb.kieuld_id=39 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_NG,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =7 and  tb.kieuld_id=96 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_KP
+
+                        FROM css.v_hd_thuebao@onebss tb
+                             , css.kieu_ld@onebss k
+                             , css.v_db_thuebao@onebss b
+                             , css.v_hdtb_dv@onebss dt
+                             , admin.v_donvi@onebss dv, admin.v_donvi@onebss dvc
+                             , css.v_db_adsl@onebss a
+                             , css.v_hdtb_adsl@onebss cttb
+                             , css.v_port@onebss p , css.v_dslam@onebss d
+
+                       WHERE nvl(tb.ngay_ht, tb.ngay_ins)  BETWEEN TO_DATE(P_TUNGAY,'DD/MM/YYYY')
+                                      AND TO_DATE(P_DENNGAY || ' 23:59:59', 'DD/MM/YYYY HH24:MI:SS')
+                              and tb.loaitb_id in (1,32,58,61,171,63,77,210,274)
+                              and k.loaihd_id in (1,4,6,7,30)
+                              and tb.doituong_id <> 190
+                              and  tb.kieuld_id=k.kieuld_id
+                              and tb.hdtb_id =dt.hdtb_id
+                              AND tb.hdtb_id=cttb.hdtb_id(+)
+                              and dt.donvi_id = dv.donvi_id and dt.loaidv_id=5
+                              and dv.donvi_cha_id=dvc.donvi_id
+                              --port
+                              and tb.ma_tb = b.ma_tb (+)
+                              and b.thuebao_id = a.thuebao_id (+)
+                              and a.port_id = p.port_id (+) and p.dslam_id=d.dslam_id (+)
+
+                        GROUP BY dvc.ten_dv,dv.ten_dv)
+     
+union all
+   -- to tram BDH
+         SELECT
+
+                 ttvt ,tovt
+                , CD_PT , CD_HUY ,CD_NG ,CD_KP
+                ,GP_PT ,GP_HUY ,GP_NG ,GP_KP
+                , IMS_PT, IMS_CD,  IMS_HUY , IMS_NG ,IMS_KP
+                , MESH_PT, MESH_HUY , MESH_NG ,MESH_KP
+                , FTTX_PT AS FTTX_PT , FTTX_PT_GPON
+                ,FTTX_PT_CD , FTTX_KPTL
+                , FTTX_HUY
+                , FTTX_H_TD
+                , FTTX_NG ,FTTX_KP
+                , MYTV_PT ,MYTV_PT_APP , MYTV_KPTL ,MYTV_HUY
+                ,MYTV_H_TD
+                , MYTV_NG ,MYTV_KP
+                  FROM
+
+                 (SELECT
+                                 dvc.ten_dv as ttvt,
+                                 dv.ten_dv as tovt,
+
+                                 /* loaihd_id = 1: LMoi ; 4: thanh ly ; 30: KP thanh ly, 7 : Thay doi dv */
+                                 /*------- co dinh : loaitb_id=1 */
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS CD_PT,
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS CD_HUY,
+                                 --tb.kieuld_id=103 : tam dung su dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =7 and tb.kieuld_id=103 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS CD_NG,
+                                 --tb.kieuld_id=104 : mo tam dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =7 and tb.kieuld_id=104 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS CD_KP,
+
+                                  /* --------gphone : tb.loaitb_id=32 (GP tr? sau) */
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_PT,
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_HUY,
+                                 -- tb.kieuld_id=101 : tam dung su dung gphone
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =7 and tb.kieuld_id= 101 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_NG,
+                                 -- tb.kieuld_id=102 : mo tam dung gphone
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =7 and tb.kieuld_id= 102 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_KP,
+                                    /*------- ims : loaitb_id in (63,77) SIP, SIP trunking */
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_PT,
+
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_HUY,
+                                    SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =6 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_CD,
+                                 --tb.kieuld_id=109 : tam dung su dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =7 and tb.kieuld_id=109 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS IMS_NG,
+                                 --tb.kieuld_id=110 : mo tam dung ims
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =7 and tb.kieuld_id=110 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS IMS_KP,
+                                /*------- mesh : loaitb_id in (210,274)
+            Wifi Mesh: D?ch v? h?p tác cho thuê thi?t b? Wifi Mesh
+            Wifi Mesh TM:   HieuTC 26042021 : Wifi Mesh thuong m?i, TTKD mua các thi?t b? bên ngoài 4 */
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID IN (1, 30) AND
+                      TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_PT,
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 4 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_HUY,
+
+           --tb.kieuld_id=109 : tam dung su dung MESH
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 7 AND
+                      TB.KIEULD_ID = 39 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_NG,
+           --tb.kieuld_id=110 : mo tam dung MESH
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 7 AND
+                      TB.KIEULD_ID = 96 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_KP,
+
+                                 /*-------FTTH  =>loaitbi_id = 58, tb.kieuld_id = 39: Tam dung tb internet, 96 : Mo tam dung */
+                               -- SUM(CASE WHEN tb.loaitb_id=58 and (k.loaihd_id in (1,30) OR  (tb.kieuld_id=182) ) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT,
+                             --   SUM(CASE WHEN tb.loaitb_id=58 and (k.loaihd_id in (1,30)  or  k.kieuld_id=182) and tb.tthd_id=6 and d.loaitbi_id = 3 THEN 1 ELSE 0 END) AS FTTX_PT_GPON,
+
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (1)  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (1) and tb.tthd_id=6 and d.loaitbi_id = 3 THEN 1 ELSE 0 END) AS FTTX_PT_GPON,
+                                SUM(CASE WHEN tb.loaitb_id=58 and (tb.kieuld_id=182) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT_CD,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (30)  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_KPTL,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_HUY,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =4 AND tb.kieuld_id=306  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_H_TD,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =7 and tb.kieuld_id=39 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS FTTX_NG,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =7 and tb.kieuld_id=96 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS FTTX_KP,
+                                 /*-------MYTV: tb.loaitb_id=61, Mytv B2B: 171*/
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_PT,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (1) and tb.tthd_id=6 AND cttb.trangbi_id=7 THEN 1 ELSE 0 END ) AS MYTV_PT_APP,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (30) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_KPTL,
+                                /*SUM(CASE WHEN tb.loaitb_id in (171) and k.loaihd_id in (1,30) and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS MYTV_PT_B2B,*/
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_HUY,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =4 AND k.kieuld_id=306 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_H_TD,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =7 and  tb.kieuld_id=39 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_NG,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =7 and  tb.kieuld_id=96 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_KP
+
+                        FROM css.v_hd_thuebao@bdh_onebss tb
+                             , css.kieu_ld@bdh_onebss k
+                             , css.v_db_thuebao@bdh_onebss b
+                             , css.v_hdtb_dv@bdh_onebss dt
+                             , admin.v_donvi@bdh_onebss dv, admin.v_donvi@bdh_onebss dvc
+                             , css.v_db_adsl@bdh_onebss a
+                             , css.v_hdtb_adsl@bdh_onebss cttb
+                             , css.v_port@bdh_onebss p , css.v_dslam@bdh_onebss d
+
+                       WHERE nvl(tb.ngay_ht, tb.ngay_ins)  BETWEEN TO_DATE(P_TUNGAY,'DD/MM/YYYY')
+                                      AND TO_DATE(P_DENNGAY || ' 23:59:59', 'DD/MM/YYYY HH24:MI:SS')
+                              and tb.loaitb_id in (1,32,58,61,171,63,77,210,274)
+                              and k.loaihd_id in (1,4,6,7,30)
+                              and tb.doituong_id <> 190
+                              and  tb.kieuld_id=k.kieuld_id
+                              and tb.hdtb_id =dt.hdtb_id
+                              AND tb.hdtb_id=cttb.hdtb_id(+)
+                              and dt.donvi_id = dv.donvi_id and dt.loaidv_id=5
+                              and dv.donvi_cha_id=dvc.donvi_id
+                              --port
+                              and tb.ma_tb = b.ma_tb (+)
+                              and b.thuebao_id = a.thuebao_id (+)
+                              and a.port_id = p.port_id (+) and p.dslam_id=d.dslam_id (+)
+
+                        GROUP BY dvc.ten_dv,dv.ten_dv
+                        )
+   
+)
+
+order by ttvt, tovt
+;
+ 
+END TH_TANGGIAMTB_TOKT_TL;
+
+PROCEDURE TH_TANGGIAMTB_DB( P_TUNGAY VARCHAR2, P_DENNGAY VARCHAR2,  P_RS OUT SYS_REFCURSOR) AS
+-- Nguồn từ 
+  BEGIN
+     OPEN P_RS FOR
+
+           SELECT
+                ttvt ,ma_ttvt, tovt ,ma_tovt,khuvuc_id
+                ,dia_ban
+                , CD_PT , CD_HUY ,CD_NG ,CD_KP
+                , (CD_PT - CD_HUY) AS CD_TT
+
+                ,GP_PT ,GP_HUY ,GP_NG ,GP_KP
+                , (GP_PT - GP_HUY) AS GP_TT
+
+                , IMS_PT, IMS_CD,  IMS_HUY , IMS_NG ,IMS_KP
+                , (IMS_PT - IMS_HUY) AS IMS_TT
+                , MESH_PT,   MESH_HUY , MESH_NG ,MESH_KP
+                , (MESH_PT - MESH_HUY) AS MESH_TT
+                , FTTX_PT AS FTTX_PT , FTTX_PT_GPON
+                , (FTTX_PT - FTTX_PT_GPON ) as  FTTX_PT_SW
+                ,FTTX_PT_CD , FTTX_KPTL
+                , FTTX_HUY
+                , FTTX_H_TD
+                ,(FTTX_HUY-FTTX_H_TD) AS FTTX_HUY_TT
+                , FTTX_NG ,FTTX_KP
+                , (FTTX_PT - FTTX_HUY) AS FTTX_TT
+               /* , case
+                    when FTTX_PT = 0 then 0 || '%'
+                    else round(FTTX_HUY *100 / FTTX_PT , 2)  || '%'
+                  end FTTX_TL*/
+
+              --   round(FTTX_HUY *100 / (FTTX_PT +FTTX_PT_CD )) as FTTX_TL
+
+                , MYTV_PT ,MYTV_PT_APP, MYTV_KPTL  ,MYTV_HUY
+                ,MYTV_H_TD
+                ,(MYTV_HUY-MYTV_H_TD) AS MYTV_HUY_TT
+                , MYTV_NG ,MYTV_KP
+                , (MYTV_PT - MYTV_HUY) AS MYTV_TT
+              /*  , case
+                    when MYTV_PT = 0 then 0 || '%'
+                    else round(MYTV_HUY *100 / MYTV_PT,2)  || '%'
+                  end MYTV_TL*/
+            -- ,round(MYTV_HUY *100 / MYTV_PT) as MYTV_TL
+  from
+ (
+    -- dia ban
+       SELECT
+
+                 ttvt ,ma_ttvt, tovt ,ma_tovt,khuvuc_id, nvl(DIA_BAN,unistr('\004B\0058\003F')) AS dia_ban
+                , CD_PT , CD_HUY ,CD_NG ,CD_KP
+                ,GP_PT ,GP_HUY ,GP_NG ,GP_KP
+                ,IMS_PT, IMS_CD,  IMS_HUY , IMS_NG ,IMS_KP
+                 , MESH_PT,   MESH_HUY , MESH_NG ,MESH_KP
+                ,FTTX_PT AS FTTX_PT , FTTX_PT_GPON
+                ,FTTX_PT_CD ,FTTX_KPTL, FTTX_HUY , FTTX_H_TD, FTTX_NG ,FTTX_KP
+                ,MYTV_PT ,MYTV_PT_APP , MYTV_KPTL , MYTV_HUY,MYTV_H_TD,MYTV_NG ,MYTV_KP
+                  FROM
+                   (SELECT
+                                 case when dvc.ma_dv ='237' then dv.ten_dv else dvc.ten_dv end as ttvt,
+                                 case when dvc.ma_dv ='237' then dv.ma_dv else dvc.ma_dv end as ma_ttvt,
+                                 dv.ten_dv as tovt,
+                                 dv.ma_dv as ma_tovt,
+                               KV.TEN_KV AS DIA_BAN,kv.khuvuc_id,
+                                 /* loaihd_id = 1: LMoi ; 4: thanh ly ; 30: KP thanh ly, 7 : Thay doi dv */
+                                 /*------- co dinh : loaitb_id=1 */
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS CD_PT,
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS CD_HUY,
+                                 --tb.kieuld_id=103 : tam dung su dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =7 and tb.kieuld_id=103 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS CD_NG,
+                                 --tb.kieuld_id=104 : mo tam dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =7 and tb.kieuld_id=104 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS CD_KP,
+
+                                  /* --------gphone : tb.loaitb_id=32 (GP tr? sau) */
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_PT,
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_HUY,
+
+                                 -- tb.kieuld_id=101 : tam dung su dung gphone
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =7 and tb.kieuld_id= 101 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_NG,
+                                 -- tb.kieuld_id=102 : mo tam dung gphone
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =7 and tb.kieuld_id= 102 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_KP,
+                                  /*------- ims : loaitb_id in (63,77) SIP, SIP trunking */
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_PT,
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_HUY,
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =6 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_CD,
+                                 --tb.kieuld_id=109 : tam dung su dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =7 and tb.kieuld_id=109 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS IMS_NG,
+                                 --tb.kieuld_id=110 : mo tam dung ims
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =7 and tb.kieuld_id=110 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS IMS_KP,
+
+                /*------- mesh : loaitb_id in (210,274)
+            Wifi Mesh: D?ch v? h?p tác cho thuê thi?t b? Wifi Mesh
+            Wifi Mesh TM:   HieuTC 26042021 : Wifi Mesh thuong m?i, TTKD mua các thi?t b? bên ngoài 4 */
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID IN (1, 30) AND
+                      TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_PT,
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 4 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_HUY,
+
+           --tb.kieuld_id=109 : tam dung su dung MESH
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 7 AND
+                      TB.KIEULD_ID = 39 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_NG,
+           --tb.kieuld_id=110 : mo tam dung MESH
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 7 AND
+                      TB.KIEULD_ID = 96 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_KP,
+
+                                 /*-------FTTH  =>loaitbi_id = 58, tb.kieuld_id = 39: Tam dung tb internet, 96 : Mo tam dung */
+                                --SUM(CASE WHEN tb.loaitb_id=58 and (k.loaihd_id in (1,30) OR  (k.kieuld_id=182) ) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT,
+                                --SUM(CASE WHEN tb.loaitb_id=58 and (k.loaihd_id in (1,30)  or  k.kieuld_id=182) and tb.tthd_id=6 and d.loaitbi_id = 3 THEN 1 ELSE 0 END) AS FTTX_PT_GPON,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (1)  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (1)  and tb.tthd_id=6 and d.loaitbi_id = 3 THEN 1 ELSE 0 END) AS FTTX_PT_GPON,
+                                SUM(CASE WHEN tb.loaitb_id=58 and (tb.kieuld_id=182) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT_CD,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (30)  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_KPTL,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_HUY,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =4 AND tb.kieuld_id=306  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_H_TD,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =7 and tb.kieuld_id=39 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS FTTX_NG,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =7 and tb.kieuld_id=96 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS FTTX_KP,
+                                 /*-------MYTV: tb.loaitb_id=61*/
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_PT,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (1) and tb.tthd_id=6 AND cttb.trangbi_id=7 THEN 1 ELSE 0 END ) AS MYTV_PT_APP,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (30) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_KPTL,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_HUY,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =4 AND k.kieuld_id=306 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_H_TD,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =7 and  tb.kieuld_id=39 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_NG,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =7 and  tb.kieuld_id=96 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_KP
+
+                        FROM css.v_hd_thuebao@onebss tb
+                             , css.kieu_ld@onebss k
+                             , css.v_db_thuebao@onebss b
+                             , css.v_hdtb_dv@onebss dt
+                             , admin.v_donvi@onebss dv, admin.v_donvi@onebss dvc
+                             , css.v_db_adsl@onebss a
+                             , css.v_hdtb_adsl@onebss cttb
+                             , css.v_port@onebss p , css.v_dslam@onebss d
+                             ,(select ROW_NUMBER() OVER (PARTITION BY thuebao_id, phanvung_id ORDER BY kieukv_id DESC) AS RN, thuebao_id, loaikv_id ,khuvuc_id, phanvung_id from css.v_dbtb_kv@onebss 
+                    where  loaikv_id = 4) tbkv
+                             ,css.v_khuvuc@onebss kv
+                        WHERE nvl(tb.ngay_ht, tb.ngay_ins)  BETWEEN TO_DATE(P_TUNGAY,'DD/MM/YYYY')
+                                      AND TO_DATE(P_DENNGAY || ' 23:59:59', 'DD/MM/YYYY HH24:MI:SS')
+                              and tb.loaitb_id in (1,32,58,11,61,171,63,77,210,274)
+                               and k.loaihd_id in (1,4,6,7,30)
+                              and tb.doituong_id <> 190 --lo?i tr? thu? bao d?ng th?
+                              and  tb.kieuld_id=k.kieuld_id
+                              and tb.hdtb_id =dt.hdtb_id
+                              AND tb.hdtb_id=cttb.hdtb_id(+)
+                              and dt.donvi_id = dv.donvi_id and dt.loaidv_id=5
+                              and dv.donvi_cha_id=dvc.donvi_id
+                              --port
+                              and tb.ma_tb = b.ma_tb (+)
+                              and b.thuebao_id = a.thuebao_id (+)
+                              and a.port_id = p.port_id (+) and p.dslam_id=d.dslam_id (+)
+                              AND   tbkv.thuebao_id(+)=B.thuebao_id
+                              AND kv.khuvuc_id(+) = tbkv.khuvuc_id
+                               AND tb.tthd_id=6
+                        GROUP BY --dvc.ten_dv,dv.ten_dv , kv.ten_kv
+                             case when dvc.ma_dv ='237' then dv.ten_dv else dvc.ten_dv end ,
+                                 case when dvc.ma_dv ='237' then dv.ma_dv else dvc.ma_dv end ,
+                                 dv.ten_dv ,
+                                 dv.ma_dv ,
+                               KV.TEN_KV ,kv.khuvuc_id
+                            
+        )
+   
+   union all
+   -- dia ban BDH
+       SELECT
+
+                  ttvt ,ma_ttvt, tovt ,ma_tovt,khuvuc_id, nvl(DIA_BAN,unistr('\004B\0058\003F')) AS dia_ban
+                , CD_PT , CD_HUY ,CD_NG ,CD_KP
+                ,GP_PT ,GP_HUY ,GP_NG ,GP_KP
+                ,IMS_PT, IMS_CD,  IMS_HUY , IMS_NG ,IMS_KP
+                 , MESH_PT,   MESH_HUY , MESH_NG ,MESH_KP
+                ,FTTX_PT AS FTTX_PT , FTTX_PT_GPON
+                ,FTTX_PT_CD ,FTTX_KPTL, FTTX_HUY , FTTX_H_TD, FTTX_NG ,FTTX_KP
+                ,MYTV_PT ,MYTV_PT_APP , MYTV_KPTL , MYTV_HUY,MYTV_H_TD,MYTV_NG ,MYTV_KP
+                  FROM
+                   (SELECT
+                                 case when dvc.ma_dv ='237' then dv.ten_dv else dvc.ten_dv end as ttvt,
+                                 case when dvc.ma_dv ='237' then dv.ma_dv else dvc.ma_dv end as ma_ttvt,
+                                 dv.ten_dv as tovt,
+                                 dv.ma_dv as ma_tovt,
+                                 KV.TEN_KV AS DIA_BAN,kv.khuvuc_id,
+                                 /* loaihd_id = 1: LMoi ; 4: thanh ly ; 30: KP thanh ly, 7 : Thay doi dv */
+                                 /*------- co dinh : loaitb_id=1 */
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS CD_PT,
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS CD_HUY,
+                                 --tb.kieuld_id=103 : tam dung su dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =7 and tb.kieuld_id=103 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS CD_NG,
+                                 --tb.kieuld_id=104 : mo tam dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id=1 and k.loaihd_id =7 and tb.kieuld_id=104 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS CD_KP,
+
+                                  /* --------gphone : tb.loaitb_id=32 (GP tr? sau) */
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_PT,
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_HUY,
+
+                                 -- tb.kieuld_id=101 : tam dung su dung gphone
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =7 and tb.kieuld_id= 101 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_NG,
+                                 -- tb.kieuld_id=102 : mo tam dung gphone
+                                 SUM(CASE WHEN tb.loaitb_id=32 and k.loaihd_id =7 and tb.kieuld_id= 102 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS GP_KP,
+                                  /*------- ims : loaitb_id in (63,77) SIP, SIP trunking */
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_PT,
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_HUY,
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =6 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS IMS_CD,
+                                 --tb.kieuld_id=109 : tam dung su dung co dinh
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =7 and tb.kieuld_id=109 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS IMS_NG,
+                                 --tb.kieuld_id=110 : mo tam dung ims
+                                 SUM(CASE WHEN tb.loaitb_id IN (63,77) and k.loaihd_id =7 and tb.kieuld_id=110 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS IMS_KP,
+
+                /*------- mesh : loaitb_id in (210,274)
+            Wifi Mesh: D?ch v? h?p tác cho thuê thi?t b? Wifi Mesh
+            Wifi Mesh TM:   HieuTC 26042021 : Wifi Mesh thuong m?i, TTKD mua các thi?t b? bên ngoài 4 */
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID IN (1, 30) AND
+                      TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_PT,
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 4 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_HUY,
+
+           --tb.kieuld_id=109 : tam dung su dung MESH
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 7 AND
+                      TB.KIEULD_ID = 39 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_NG,
+           --tb.kieuld_id=110 : mo tam dung MESH
+           SUM(CASE
+                 WHEN TB.LOAITB_ID IN (210,274) AND K.LOAIHD_ID = 7 AND
+                      TB.KIEULD_ID = 96 AND TB.TTHD_ID = 6 THEN
+                  1
+                 ELSE
+                  0
+               END) AS MESH_KP,
+
+                                 /*-------FTTH  =>loaitbi_id = 58, tb.kieuld_id = 39: Tam dung tb internet, 96 : Mo tam dung */
+                                --SUM(CASE WHEN tb.loaitb_id=58 and (k.loaihd_id in (1,30) OR  (k.kieuld_id=182) ) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT,
+                                --SUM(CASE WHEN tb.loaitb_id=58 and (k.loaihd_id in (1,30)  or  k.kieuld_id=182) and tb.tthd_id=6 and d.loaitbi_id = 3 THEN 1 ELSE 0 END) AS FTTX_PT_GPON,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (1)  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (1)  and tb.tthd_id=6 and d.loaitbi_id = 3 THEN 1 ELSE 0 END) AS FTTX_PT_GPON,
+                                SUM(CASE WHEN tb.loaitb_id=58 and (tb.kieuld_id=182) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_PT_CD,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id in (30)  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_KPTL,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_HUY,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =4 AND tb.kieuld_id=306  and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS FTTX_H_TD,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =7 and tb.kieuld_id=39 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS FTTX_NG,
+                                SUM(CASE WHEN tb.loaitb_id=58 and k.loaihd_id =7 and tb.kieuld_id=96 and tb.tthd_id=6  THEN 1 ELSE 0 END ) AS FTTX_KP,
+                                 /*-------MYTV: tb.loaitb_id=61*/
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (1) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_PT,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (1) and tb.tthd_id=6 AND cttb.trangbi_id=7 THEN 1 ELSE 0 END ) AS MYTV_PT_APP,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id in (30) and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_KPTL,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =4 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_HUY,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =4 AND k.kieuld_id=306 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_H_TD,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =7 and  tb.kieuld_id=39 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_NG,
+                                SUM(CASE WHEN tb.loaitb_id in (61,171) and k.loaihd_id =7 and  tb.kieuld_id=96 and tb.tthd_id=6 THEN 1 ELSE 0 END ) AS MYTV_KP
+
+                        FROM css.v_hd_thuebao@bdh_onebss tb
+                             , css.kieu_ld@bdh_onebss k
+                             , css.v_db_thuebao@bdh_onebss b
+                             , css.v_hdtb_dv@bdh_onebss dt
+                             , admin.v_donvi@bdh_onebss dv
+                             , admin.v_donvi@bdh_onebss dvc
+                             , css.v_db_adsl@bdh_onebss a
+                             , css.v_hdtb_adsl@bdh_onebss cttb
+                             , css.v_port@bdh_onebss p , css.v_dslam@bdh_onebss d
+                             , (select ROW_NUMBER() OVER (PARTITION BY thuebao_id, phanvung_id ORDER BY kieukv_id DESC) AS RN, thuebao_id, loaikv_id ,khuvuc_id, phanvung_id from css.v_dbtb_kv@bdh_onebss 
+                                  where  loaikv_id = 4)tbkv
+                             ,css.v_khuvuc@bdh_onebss kv
+                             
+                        WHERE nvl(tb.ngay_ht, tb.ngay_ins)  BETWEEN TO_DATE(P_TUNGAY,'DD/MM/YYYY')
+                                      AND TO_DATE(P_DENNGAY || ' 23:59:59', 'DD/MM/YYYY HH24:MI:SS')
+                              and tb.loaitb_id in (1,32,58,11,61,171,63,77,210,274)
+                               and k.loaihd_id in (1,4,6,7,30)
+                              and tb.doituong_id <> 190 --lo?i tr? thu? bao d?ng th?
+                              and  tb.kieuld_id=k.kieuld_id
+                              and tb.hdtb_id =dt.hdtb_id
+                              AND tb.hdtb_id=cttb.hdtb_id(+)
+                              and dt.donvi_id = dv.donvi_id and dt.loaidv_id=5
+                              and dv.donvi_cha_id=dvc.donvi_id
+                              --port
+                              and tb.ma_tb = b.ma_tb (+)
+                              and b.thuebao_id = a.thuebao_id (+)
+                              and a.port_id = p.port_id (+) and p.dslam_id=d.dslam_id (+)
+                              AND   tbkv.thuebao_id(+)=B.thuebao_id
+                              AND kv.khuvuc_id(+) = tbkv.khuvuc_id
+                               AND tb.tthd_id=6
+                        GROUP BY --dvc.ten_dv,dv.ten_dv , kv.ten_kv
+                         case when dvc.ma_dv ='237' then dv.ten_dv else dvc.ten_dv end ,
+                                 case when dvc.ma_dv ='237' then dv.ma_dv else dvc.ma_dv end ,
+                                 dv.ten_dv ,
+                                 dv.ma_dv ,
+                               KV.TEN_KV ,kv.khuvuc_id
+        )
+     )   
+   
+
+
+
+order by ttvt, tovt
+;
+ 
+END TH_TANGGIAMTB_DB;
+
+end GLI_BAOCAO;

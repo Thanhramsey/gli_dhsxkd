@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import ZoomableKpiChart from '../components/charts/ZoomableKpiChart.vue'
+import SubscriberMovementDashboard from '../components/charts/SubscriberMovementDashboard.vue'
 import { kpiApi } from '../api/kpi.api'
 import { getAuthErrorMessage } from '../api/auth.api'
-import type { KpiMaintenanceRow, KpiPscProcedure, KpiPscRow, KpiRow, KpiTrendProcedure, KpiTrendRow } from '../types/kpi'
+import type { KpiMaintenanceRow, KpiPscProcedure, KpiPscRow, KpiRow, KpiTrendProcedure, KpiTrendRow, KpiSubscriberMovementRow } from '../types/kpi'
 import '../plugins/echarts'
 
 const now = new Date()
@@ -13,7 +14,8 @@ const monthOptions = Array.from({ length: 12 }, (_, index) => ({ title: `Tháng 
 const yearOptions = Array.from({ length: 8 }, (_, index) => now.getFullYear() + 1 - index)
 const month = computed(() => `${year.value}-${String(monthNumber.value).padStart(2, '0')}`)
 type KpiMaintenanceProcedure = 'BC_DT_DUY_TRI_FIBER_MYTV'
-const procedureOptions: { title: string; value: 'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure | KpiMaintenanceProcedure }[] = [
+type DashboardProcedure = 'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure | KpiMaintenanceProcedure | 'TH_TANGGIAMTB_DB'
+const procedureOptions: { title: string; value: DashboardProcedure }[] = [
   { title: 'Tổng hợp KPI', value: 'TONG_HOP_KPI' },
   { title: 'BRCD (Fiber)', value: 'TONG_HOP_KPI_BRCD' },
   { title: 'MyTV', value: 'TONG_HOP_KPI_MYTV' },
@@ -26,8 +28,10 @@ const procedureOptions: { title: string; value: 'TONG_HOP_KPI' | KpiTrendProcedu
   { title: 'Tỷ lệ ngừng PSC Fiber', value: 'TYLE_NGUNG_PSC_FIBER' },
   { title: 'Tỷ lệ ngừng PSC MyTV', value: 'TYLE_NGUNG_PSC_MYTV' },
   { title: 'Doanh thu duy trì Fiber + MyTV', value: 'BC_DT_DUY_TRI_FIBER_MYTV' },
+  { title: 'Biến động thuê bao', value: 'TH_TANGGIAMTB_DB' },
 ]
-const selectedProcedure = ref<'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure | KpiMaintenanceProcedure>('TONG_HOP_KPI')
+const selectedProcedure = ref<DashboardProcedure>('TONG_HOP_KPI')
+const movementRows = ref<KpiSubscriberMovementRow[]>([])
 const rows = ref<KpiRow[]>([])
 const trendRows = ref<KpiTrendRow[]>([])
 const pscRows = ref<KpiPscRow[]>([])
@@ -97,6 +101,8 @@ function isSnapshotProcedure(procedure: string): procedure is KpiTrendProcedure 
 }
 const pageDescription = computed(() => selectedProcedure.value === 'TONG_HOP_KPI'
   ? 'Kế hoạch và kết quả thực hiện theo từng chỉ tiêu trong'
+  : selectedProcedure.value === 'TH_TANGGIAMTB_DB'
+    ? 'Phát triển, hủy và thực tăng thuê bao theo dịch vụ, đơn vị trong'
   : isPscProcedure(selectedProcedure.value)
     ? 'Tỷ lệ ngừng phát sinh cước theo đơn vị trong'
     : isMaintenanceProcedure(selectedProcedure.value)
@@ -581,6 +587,7 @@ async function load() {
   trendRows.value = []
   pscRows.value = []
   maintenanceRows.value = []
+  movementRows.value = []
   error.value = ''
   try {
     if (procedure === 'TONG_HOP_KPI') {
@@ -593,6 +600,10 @@ async function load() {
       const result = await kpiApi.psc(queryMonth, procedure)
       if (version !== loadVersion) return
       pscRows.value = result.rows
+    } else if (procedure === 'TH_TANGGIAMTB_DB') {
+      const result = await kpiApi.subscriberMovement(queryMonth)
+      if (version !== loadVersion) return
+      movementRows.value = result.rows
     } else if (isMaintenanceProcedure(procedure)) {
       const result = await kpiApi.maintenance(queryMonth)
       if (version !== loadVersion) return
@@ -611,6 +622,7 @@ async function load() {
     trendRows.value = []
     pscRows.value = []
     maintenanceRows.value = []
+    movementRows.value = []
     loaded.value = true
     error.value = getAuthErrorMessage(cause)
   } finally {
@@ -687,7 +699,7 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
 <template>
   <v-container class="kpi-page" fluid>
     <header class="page-head">
-      <div><span class="eyebrow">HỆ THỐNG DỮ LIỆU GIAO BAN</span><h1>{{ isMaintenanceProcedure(selectedProcedure) ? 'Doanh thu duy trì Fiber + MyTV' : 'Tổng hợp chỉ tiêu KPI' }}</h1><p>{{ pageDescription }} <strong>{{ monthLabel }}</strong>.</p></div>
+      <div><span class="eyebrow">HỆ THỐNG DỮ LIỆU GIAO BAN</span><h1>{{ selectedProcedure === 'TH_TANGGIAMTB_DB' ? 'Biến động thuê bao' : isMaintenanceProcedure(selectedProcedure) ? 'Doanh thu duy trì Fiber + MyTV' : 'Tổng hợp chỉ tiêu KPI' }}</h1><p>{{ pageDescription }} <strong>{{ monthLabel }}</strong>.</p></div>
     </header>
     <v-card class="filter-card" elevation="0"><v-card-text class="filter-row">
       <v-select v-model="selectedProcedure" :items="procedureOptions" label="Chỉ tiêu" variant="outlined" hide-details />
@@ -889,6 +901,7 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
           </v-card>
         </template>
       </template>
+      <SubscriberMovementDashboard v-else-if="selectedProcedure === 'TH_TANGGIAMTB_DB'" :rows="movementRows" :month="month" />
       <template v-else>
         <div v-if="isSnapshotTrend && trendRows.length" class="snapshot-context">
           <div><span class="snapshot-period"><v-icon icon="mdi-calendar-month-outline" size="17" /> Đang xem <strong>{{ snapshotViewingLabel }}</strong></span><small>Bộ số liệu {{ monthLabel }}<template v-if="snapshotSummaryTrend?.updatedAt"> · Cập nhật {{ snapshotSummaryTrend.updatedAt }}</template></small></div>

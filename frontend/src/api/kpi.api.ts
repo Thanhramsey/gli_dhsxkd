@@ -1,8 +1,12 @@
 import { http } from './http'
 import type { ApiResponse } from '../types/api'
-import type { KpiMaintenance, KpiPsc, KpiPscProcedure, KpiSummary, KpiTrend, KpiTrendProcedure } from '../types/kpi'
+import type { KpiMaintenance, KpiPsc, KpiPscProcedure, KpiSummary, KpiTrend, KpiTrendProcedure, KpiSubscriberMovement } from '../types/kpi'
 
 export const kpiApi = {
+  async subscriberMovement(month: string): Promise<KpiSubscriberMovement> {
+    const response = await http.post<ApiResponse<KpiSubscriberMovement>>('/kpi/subscriber-movement', { month }, { timeout: 120_000 })
+    return response.data.data
+  },
   async latestMonth(procedure?: KpiTrendProcedure): Promise<string | null> {
     const response = await http.get<ApiResponse<{ month: string | null }>>('/kpi/latest-month', { params: procedure ? { procedure } : undefined })
     return response.data.data.month
