@@ -233,6 +233,18 @@ function clearSelectedGroup() {
   selectedKey.value = null
   overview.value?.focus({ preventScroll: true })
 }
+function scrollChart(event: WheelEvent) {
+  if (event.ctrlKey || event.shiftKey || !event.deltaY) return
+  const container = event.currentTarget as HTMLElement
+  const step = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? container.clientHeight : 1
+  const nextTop = Math.max(0, Math.min(container.scrollHeight - container.clientHeight, container.scrollTop + event.deltaY * step))
+  // Handle the wheel before the chart canvas consumes it; keep page scrolling at the edges.
+  event.stopPropagation()
+  if (nextTop !== container.scrollTop) {
+    event.preventDefault()
+    container.scrollTop = nextTop
+  }
+}
 async function selectTableGroup(key: string) {
   selectedKey.value = selectedKey.value === key ? null : key
   await nextTick()
@@ -284,7 +296,7 @@ function drillSelected() {
           <div class="chart-heading"><div><strong>{{ comparisonView === 'development' ? 'Phát triển mới và hủy' : 'Tạm ngừng và khôi phục' }} · {{ serviceName }}</strong></div><v-btn :icon="comparisonDescending ? 'mdi-sort-descending' : 'mdi-sort-ascending'" size="small" variant="tonal" color="primary" :title="`${comparisonSortMetric.name}: ${comparisonDescending ? 'giảm dần' : 'tăng dần'}. Bấm để đảo chiều`" @click="comparisonDescending = !comparisonDescending" /></div>
           <v-btn-toggle v-model="comparisonView" mandatory color="primary" variant="tonal" density="compact" class="chart-mode"><v-btn value="development" size="small">Phát triển / hủy</v-btn><v-btn value="status" size="small">Tạm ngừng / khôi phục</v-btn></v-btn-toggle>
 
-          <div class="chart-scroll" tabindex="0" aria-label="Danh sách đầy đủ đơn vị phát triển và hủy">
+          <div class="chart-scroll" tabindex="0" aria-label="Danh sách đầy đủ đơn vị phát triển và hủy" @wheel.capture="scrollChart">
             <ZoomableKpiChart class="movement-chart" :style="{ height: `${Math.max(380, comparisonRows.length * 32 + 90)}px` }" :option="comparisonOption" axis="y" :count="comparisonRows.length" @click="selectGroup($event, comparisonRows)" @legendselectchanged="syncComparisonLegend" />
           </div>
         </v-card>
@@ -292,7 +304,7 @@ function drillSelected() {
           <div class="chart-heading"><div><strong>Thực tăng theo {{ levelName }} · {{ serviceName }}</strong><small>Tổng: {{ count(netTotal) }} thuê bao · {{ netRows.length }} {{ levelName }}</small></div><v-btn :icon="netDescending ? 'mdi-sort-descending' : 'mdi-sort-ascending'" size="small" variant="tonal" color="primary" :title="netDescending ? 'Đang xếp giảm dần. Bấm để đảo chiều' : 'Đang xếp tăng dần. Bấm để đảo chiều'" @click="netDescending = !netDescending" /></div>
           <div class="chart-mode" aria-hidden="true" />
 
-          <div class="chart-scroll" tabindex="0" aria-label="Danh sách đầy đủ đơn vị thực tăng">
+          <div class="chart-scroll" tabindex="0" aria-label="Danh sách đầy đủ đơn vị thực tăng" @wheel.capture="scrollChart">
             <ZoomableKpiChart class="movement-chart" :style="{ height: `${Math.max(380, netRows.length * 26 + 90)}px` }" :option="netOption" axis="y" :count="netRows.length" @click="selectGroup($event, netRows)" />
           </div>
         </v-card>
