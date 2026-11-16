@@ -642,44 +642,11 @@ async function load() {
 }
 
 async function initialize() {
-  loading.value = true
-  error.value = ''
-  try {
-    let latestMonth: string | null = null
-    try {
-      latestMonth = await kpiApi.latestMonth()
-    } catch {
-      // Keep working with a backend process that has not loaded the latest-month route yet.
-    }
-    if (latestMonth) {
-      const [latestYear, latestMonthNumber] = latestMonth.split('-').map(Number)
-      year.value = latestYear
-      monthNumber.value = latestMonthNumber
-      await load()
-      return
-    }
-
-    const cursor = new Date(year.value, monthNumber.value - 1, 1)
-    for (let attempt = 0; attempt < 24; attempt += 1) {
-      year.value = cursor.getFullYear()
-      monthNumber.value = cursor.getMonth() + 1
-      const result = await kpiApi.summary(month.value)
-      if (result.rows.length) {
-        rows.value = result.rows
-        loaded.value = true
-        return
-      }
-      cursor.setMonth(cursor.getMonth() - 1)
-    }
-    rows.value = []
-    loaded.value = true
-  } catch (cause) {
-    loaded.value = true
-    error.value = getAuthErrorMessage(cause)
-  } finally {
-    loading.value = false
-    initialized.value = true
-  }
+  const currentDate = new Date()
+  year.value = currentDate.getFullYear()
+  monthNumber.value = currentDate.getMonth() + 1
+  await load()
+  initialized.value = true
 }
 
 onMounted(initialize)
