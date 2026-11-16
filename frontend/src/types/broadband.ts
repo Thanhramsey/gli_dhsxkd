@@ -1,4 +1,5 @@
 export type BroadbandProcedureKey =
+  | 'ptm-level'
   | 'ptm-employee'
   | 'ptm-location'
   | 'ptm-area'
@@ -14,6 +15,7 @@ export interface BroadbandFilter {
   serviceId: number
   subscriberTypeId: number
   areaId: number
+  level?: number
 }
 
 export interface BroadbandProcedureResult {

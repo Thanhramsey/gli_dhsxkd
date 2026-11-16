@@ -26,9 +26,7 @@ interface ProcedureState {
 }
 
 const procedures: ProcedureDefinition[] = [
-  { key: 'ptm-employee', title: 'PTM theo nhân viên phát triển', procedure: 'TONGHOP_PTM_NV' },
-  { key: 'ptm-location', title: 'PTM theo địa bàn', procedure: 'TONGHOP_PTM_DB' },
-  { key: 'ptm-area', title: 'PTM theo khu vực', procedure: 'TONGHOP_PTM_KV' },
+  { key: 'ptm-level', title: 'Phát triển mới (PTM)', procedure: 'TONGHOP_PTM_CAP' },
   { key: 'xgspon-location', title: 'XGSPON theo địa bàn', procedure: 'TONGHOP_XGSPON_DB' },
   { key: 'xgspon-employee', title: 'XGSPON theo nhân viên phát triển', procedure: 'TONGHOP_XGSPON_NVPT' },
   { key: 'cancel-location', title: 'Thuê bao hủy theo địa bàn', procedure: 'TONGHOP_HUY_DB' },
@@ -36,9 +34,20 @@ const procedures: ProcedureDefinition[] = [
 ]
 
 const today = new Date()
-const fromDate = ref<Date | null>(new Date(today.getFullYear(), today.getMonth(), 1))
-const toDate = ref<Date | null>(today)
-const selectedProcedureKey = ref<BroadbandProcedureKey>('ptm-employee')
+const monthNumber = ref(today.getMonth() + 1)
+const yearNumber = ref(today.getFullYear())
+const monthMenuOpen = ref(false)
+const pickerMonth = ref(today.getMonth())
+const pickerYear = ref(today.getFullYear())
+const pickerViewMode = ref<'month' | 'months' | 'year'>('months')
+const monthLabel = computed(() => `Tháng ${monthNumber.value}/${yearNumber.value}`)
+const selectedProcedureKey = ref<BroadbandProcedureKey>('ptm-level')
+const selectedLevel = ref(1)
+const levelItems = [
+  { value: 1, title: 'Cấp 1 · Viễn thông tỉnh' },
+  { value: 2, title: 'Cấp 2 · Địa bàn' },
+  { value: 3, title: 'Cấp 3 · Nhân viên kỹ thuật' },
+]
 const selectedUnitId = ref(0)
 const selectedMetricKeys = ref<string[]>([])
 const selectedGroupKey = ref<string | null>(null)
@@ -46,11 +55,13 @@ const unitSearch = ref('')
 const units = ref<BroadbandUnit[]>([])
 const unitsLoading = ref(false)
 const generalError = ref('')
+const requestVersions: Partial<Record<BroadbandProcedureKey, number>> = {}
 function emptyState(): ProcedureState {
   return { loading: false, hasRun: false, error: '', rows: [], durationMs: 0 }
 }
 
 const states = reactive<Record<BroadbandProcedureKey, ProcedureState>>({
+  'ptm-level': emptyState(),
   'ptm-employee': emptyState(),
   'ptm-location': emptyState(),
   'ptm-area': emptyState(),
@@ -60,6 +71,7 @@ const states = reactive<Record<BroadbandProcedureKey, ProcedureState>>({
   'cancel-area': emptyState(),
 })
 const columnFilters = reactive<Record<BroadbandProcedureKey, Record<string, string | null>>>({
+  'ptm-level': {},
   'ptm-employee': {},
   'ptm-location': {},
   'ptm-area': {},
@@ -80,7 +92,20 @@ const selectedUnitName = computed(() =>
   unitItems.value.find((unit) => unit.id === selectedUnitId.value)?.name ?? 'Tất cả đơn vị',
 )
 const selectedRows = computed(() => states[selectedProcedureKey.value].rows)
-const selectedHeaders = computed(() => headersFor(selectedRows.value))
+const isPtmLevel = computed(() => selectedProcedureKey.value === 'ptm-level')
+const selectedHeaders = computed(() => headersFor(selectedRows.value).filter((header) =>
+  !isPtmLevel.value || selectedLevel.value === 3 || !['Mã nhân viên', 'Tên nhân viên'].includes(header.title),
+))
+const reportTitle = computed(() => isPtmLevel.value
+  ? `Phát triển mới · ${levelItems.find((item) => item.value === selectedLevel.value)?.title ?? ''}`
+  : selectedProcedure.value.title)
+const detailTitle = computed(() => !isPtmLevel.value
+  ? selectedProcedure.value.title
+  : selectedLevel.value === 1
+    ? 'Số liệu toàn tỉnh'
+    : selectedLevel.value === 2
+      ? 'Chi tiết theo địa bàn'
+      : 'Chi tiết theo nhân viên')
 const filteredRows = computed(() => {
   const filters = columnFilters[selectedProcedureKey.value]
   const activeFilters = Object.entries(filters).filter(([, value]) => String(value ?? '').trim())
@@ -119,7 +144,9 @@ const groupingFields = computed(() => isAreaProcedure.value
       'Mã nhân viên',
       'Tên nhân viên',
     ].includes(field.title))
-  : dimensionFields.value.slice(0, 1))
+  : isPtmLevel.value && selectedLevel.value === 3
+    ? dimensionFields.value.filter((field) => field.title === 'Tên nhân viên')
+    : dimensionFields.value.slice(0, 1))
 const categoryField = computed(() =>
   groupingFields.value.find((field) => field.key === selectedGroupKey.value) ?? groupingFields.value[0],
 )
@@ -135,7 +162,10 @@ const chartData = computed(() => {
   const grouped = new Map<string, Record<string, number>>()
 
   for (const row of filteredRows.value) {
-    const category = String(row[categoryKey] ?? '').trim() || 'Chưa xác định'
+    const baseCategory = String(row[categoryKey] ?? '').trim() || 'Chưa xác định'
+    const category = isPtmLevel.value && selectedLevel.value === 3
+      ? `${baseCategory} · ${String(row['Mã nhân viên'] ?? row['Tên đơn vị địa bàn'] ?? '').trim()}`
+      : baseCategory
     const totals = grouped.get(category) ?? {}
     for (const metric of selectedMetrics.value) {
       const value = row[metric.key]
@@ -175,6 +205,7 @@ const serviceMetricTotals = computed(() => numericFields.value
       return sum + (typeof value === 'number' && Number.isFinite(value) ? value : 0)
     }, 0),
   })))
+const ptmMetricTotals = computed(() => serviceMetricTotals.value)
 const serviceCompositionItems = computed(() => serviceMetricTotals.value
   .filter((item) => !(
     isXgsponProcedure.value && normalizeSearch(item.name) === 'tong xgspon'
@@ -201,6 +232,12 @@ watch(numericFields, (fields) => {
   }
 })
 watch(selectedProcedureKey, () => { selectedMetricKeys.value = [] }, { flush: 'sync' })
+watch(selectedLevel, () => {
+  if (selectedLevel.value === 1) clearUnitSelection()
+  states['ptm-level'].rows = []
+  columnFilters['ptm-level'] = {}
+  if (isPtmLevel.value) void runSelected('ptm-level')
+})
 watch(groupingFields, (fields) => {
   if (!fields.some((field) => field.key === selectedGroupKey.value)) {
     selectedGroupKey.value = (
@@ -211,17 +248,29 @@ watch(groupingFields, (fields) => {
   }
 })
 
-const dateError = computed(() => {
-  if (!fromDate.value || !toDate.value) return 'Vui lòng chọn đủ từ ngày và đến ngày'
-  if (toDateKey(fromDate.value) > toDateKey(toDate.value)) return 'Từ ngày không được lớn hơn đến ngày'
-  return ''
+watch(monthMenuOpen, (open) => {
+  if (open) {
+    pickerMonth.value = monthNumber.value - 1
+    pickerYear.value = yearNumber.value
+    pickerViewMode.value = 'months'
+  }
 })
 
-function toDateKey(value: Date): string {
-  const year = value.getFullYear()
-  const month = String(value.getMonth() + 1).padStart(2, '0')
-  const day = String(value.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+function selectMonth(month: number): void {
+  const changed = monthNumber.value !== month + 1 || yearNumber.value !== pickerYear.value
+  monthNumber.value = month + 1
+  yearNumber.value = pickerYear.value
+  monthMenuOpen.value = false
+  if (changed) {
+    const key = selectedProcedureKey.value
+    requestVersions[key] = (requestVersions[key] ?? 0) + 1
+    states[key].rows = []
+    states[key].hasRun = false
+    states[key].loading = false
+    states[key].error = ''
+    columnFilters[key] = {}
+    generalError.value = ''
+  }
 }
 
 function displayDate(value: unknown): string {
@@ -230,17 +279,16 @@ function displayDate(value: unknown): string {
 }
 
 function createFilter(): BroadbandFilter | null {
-  if (dateError.value || !fromDate.value || !toDate.value) {
-    generalError.value = dateError.value
-    return null
-  }
+  const month = String(monthNumber.value).padStart(2, '0')
+  const lastDay = String(new Date(yearNumber.value, monthNumber.value, 0).getDate()).padStart(2, '0')
   return {
-    fromDate: toDateKey(fromDate.value),
-    toDate: toDateKey(toDate.value),
-    unitId: selectedUnitId.value,
+    fromDate: `${yearNumber.value}-${month}-01`,
+    toDate: `${yearNumber.value}-${month}-${lastDay}`,
+    unitId: isPtmLevel.value && selectedLevel.value === 1 ? 0 : selectedUnitId.value,
     serviceId: 0,
     subscriberTypeId: 0,
     areaId: 0,
+    ...(isPtmLevel.value ? { level: selectedLevel.value } : {}),
   }
 }
 
@@ -326,20 +374,26 @@ async function runProcedure(definition: ProcedureDefinition, suppliedFilter?: Br
   const filter = suppliedFilter ?? createFilter()
   if (!filter) return
   const state = states[definition.key]
+  const requestVersion = (requestVersions[definition.key] ?? 0) + 1
+  requestVersions[definition.key] = requestVersion
   state.loading = true
   state.error = ''
   const startedAt = performance.now()
   try {
     const result = await broadbandApi.execute(definition.key, filter)
+    if (requestVersions[definition.key] !== requestVersion) return
     state.rows = result.rows
     state.hasRun = true
   } catch (reason) {
+    if (requestVersions[definition.key] !== requestVersion) return
     state.rows = []
     state.hasRun = true
     state.error = getAuthErrorMessage(reason)
   } finally {
-    state.durationMs = Math.round(performance.now() - startedAt)
-    state.loading = false
+    if (requestVersions[definition.key] === requestVersion) {
+      state.durationMs = Math.round(performance.now() - startedAt)
+      state.loading = false
+    }
   }
 }
 
@@ -375,21 +429,51 @@ onMounted(loadUnits)
     <v-card class="filter-card" elevation="0">
       <v-card-text>
         <v-row align="start">
-          <v-col cols="12" sm="6" lg="2">
-            <v-date-input v-model="fromDate" label="Từ ngày" prepend-icon="" prepend-inner-icon="mdi-calendar-start-outline" variant="outlined" clearable :display-format="displayDate" :error-messages="dateError" />
+          <v-col cols="12" sm="6" :lg="isPtmLevel && selectedLevel === 1 ? 3 : 2">
+            <v-menu v-model="monthMenuOpen" :close-on-content-click="false">
+              <template #activator="{ props: activatorProps }">
+                <v-text-field
+                  v-bind="activatorProps"
+                  :model-value="monthLabel"
+                  label="Tháng báo cáo"
+                  prepend-inner-icon="mdi-calendar-month-outline"
+                  variant="outlined"
+                  readonly
+                  hide-details
+                />
+              </template>
+              <v-date-picker
+                :month="pickerMonth"
+                :year="pickerYear"
+                v-model:view-mode="pickerViewMode"
+                hide-header
+                color="primary"
+                @update:month="selectMonth"
+                @update:year="pickerYear = $event"
+              />
+            </v-menu>
           </v-col>
-          <v-col cols="12" sm="6" lg="2">
-            <v-date-input v-model="toDate" label="Đến ngày" prepend-icon="" prepend-inner-icon="mdi-calendar-end-outline" variant="outlined" clearable :display-format="displayDate" :error-messages="dateError" />
+          <v-col v-if="isPtmLevel" cols="12" md="6" :lg="selectedLevel === 1 ? 3 : 2">
+            <v-select
+              v-model="selectedLevel"
+              :items="levelItems"
+              item-title="title"
+              item-value="value"
+              label="Cấp địa bàn"
+              prepend-inner-icon="mdi-sitemap-outline"
+              variant="outlined"
+              hide-details
+            />
           </v-col>
-          <v-col cols="12" md="6" lg="3">
+          <v-col v-if="!isPtmLevel || selectedLevel > 1" cols="12" md="6" lg="3">
             <v-autocomplete
               v-model="selectedUnitId"
               v-model:search="unitSearch"
               :items="unitItems"
               item-title="name"
               item-value="id"
-              label="Đơn vị"
-              placeholder="Nhập tên hoặc mã đơn vị"
+              :label="isPtmLevel ? 'Địa bàn' : 'Đơn vị'"
+              :placeholder="isPtmLevel ? 'Tìm địa bàn' : 'Nhập tên hoặc mã đơn vị'"
               prepend-inner-icon="mdi-magnify"
               variant="outlined"
               :loading="unitsLoading"
@@ -401,7 +485,7 @@ onMounted(loadUnits)
               @click:clear="clearUnitSelection"
             />
           </v-col>
-          <v-col cols="12" md="6" lg="3">
+          <v-col cols="12" md="6" :lg="isPtmLevel ? (selectedLevel === 1 ? 4 : 3) : 5">
             <v-select
               v-model="selectedProcedureKey"
               :items="procedures"
@@ -415,10 +499,10 @@ onMounted(loadUnits)
             />
           </v-col>
           <v-col cols="12" lg="2" class="filter-actions">
-            <v-btn color="primary" size="large" prepend-icon="mdi-database-search-outline" :loading="states[selectedProcedureKey].loading" :disabled="!!dateError" @click="runSelected()">Lấy dữ liệu</v-btn>
+            <v-btn color="primary" size="large" prepend-icon="mdi-database-search-outline" :loading="states[selectedProcedureKey].loading" @click="runSelected()">Lấy dữ liệu</v-btn>
           </v-col>
         </v-row>
-        <v-alert type="info" variant="tonal" density="compact" icon="mdi-filter-outline">
+        <v-alert v-if="!isPtmLevel" type="info" variant="tonal" density="compact" icon="mdi-filter-outline">
           Đơn vị đang chọn: <strong>{{ selectedUnitName }}</strong>.
         </v-alert>
       </v-card-text>
@@ -427,15 +511,29 @@ onMounted(loadUnits)
     <v-alert v-if="generalError" class="mt-4" type="error" variant="tonal" closable @click:close="generalError = ''">{{ generalError }}</v-alert>
 
     <section class="procedure-list">
+      <v-card v-if="isPtmLevel && states['ptm-level'].hasRun && !states['ptm-level'].error" class="ptm-summary" elevation="0">
+        <v-card-text>
+          <div class="ptm-summary__head">
+            <div><strong>{{ reportTitle }}</strong><span>{{ monthLabel }}<template v-if="selectedLevel > 1 && selectedUnitId"> · {{ selectedUnitName }}</template></span></div>
+          </div>
+          <div class="ptm-summary__metrics">
+            <div v-for="(metric, index) in ptmMetricTotals" :key="metric.name" class="ptm-summary__metric">
+              <span class="ptm-summary__dot" :style="{ background: chartMetricColor(index) }" />
+              <span>{{ metric.name }}</span>
+              <strong>{{ displayValue(metric.value) }}</strong>
+            </div>
+          </div>
+        </v-card-text>
+      </v-card>
       <section v-if="numericFields.length" class="chart-section">
         <v-card class="metric-card" elevation="0">
           <v-card-text>
             <div class="metric-card__title">
               <div>
-                <strong>Chỉ tiêu hiển thị trên biểu đồ</strong>
-                <span>Báo cáo: {{ selectedProcedure.title }} · Chọn một hoặc nhiều trường số liệu để so sánh.</span>
+                <strong>{{ isPtmLevel ? 'Chỉ tiêu so sánh' : 'Chỉ tiêu hiển thị trên biểu đồ' }}</strong>
+                <span v-if="!isPtmLevel">Báo cáo: {{ reportTitle }} · Chọn một hoặc nhiều trường số liệu để so sánh.</span>
               </div>
-              <v-chip class="active-metric-chip" color="primary" variant="tonal" prepend-icon="mdi-chart-bar">{{ selectedMetricSummary }}</v-chip>
+              <v-chip v-if="!isPtmLevel" class="active-metric-chip" color="primary" variant="tonal" prepend-icon="mdi-chart-bar">{{ selectedMetricSummary }}</v-chip>
             </div>
             <div class="metric-choices">
               <v-chip
@@ -488,10 +586,10 @@ onMounted(loadUnits)
         </v-card>
 
         <v-row v-if="chartData.length" class="chart-grid">
-          <v-col cols="12">
+          <v-col v-if="!isPtmLevel || selectedLevel === 2" cols="12" :lg="isPtmLevel ? 8 : 12">
             <v-card class="chart-card" elevation="0">
               <v-card-title>
-                <div><strong>Biểu đồ cột · {{ selectedProcedure.title }}</strong><span>{{ selectedMetricSummary }} theo {{ categoryField?.title }}</span></div>
+                <div><strong>{{ isPtmLevel ? 'So sánh địa bàn' : `Biểu đồ cột · ${reportTitle}` }}</strong><span v-if="!isPtmLevel">{{ selectedMetricSummary }} theo {{ categoryField?.title }}</span></div>
               </v-card-title>
               <v-card-text>
                 <ComparisonBarChart
@@ -503,10 +601,10 @@ onMounted(loadUnits)
               </v-card-text>
             </v-card>
           </v-col>
-          <v-col cols="12" lg="6">
+          <v-col v-if="!isPtmLevel || selectedLevel === 3" cols="12" :lg="isPtmLevel ? 8 : 6">
             <v-card class="chart-card" elevation="0">
               <v-card-title>
-                <div><strong>Biểu đồ thanh · {{ selectedProcedure.title }}</strong><span>So sánh {{ selectedMetricSummary }} theo {{ categoryField?.title }}</span></div>
+                <div><strong>{{ isPtmLevel ? 'So sánh nhân viên' : `Biểu đồ thanh · ${reportTitle}` }}</strong><span v-if="!isPtmLevel">So sánh {{ selectedMetricSummary }} theo {{ categoryField?.title }}</span></div>
               </v-card-title>
               <v-card-text>
                 <ComparisonBarChart
@@ -518,12 +616,12 @@ onMounted(loadUnits)
               </v-card-text>
             </v-card>
           </v-col>
-          <v-col v-if="serviceCompositionItems.length" cols="12" lg="6">
+          <v-col v-if="serviceCompositionItems.length" cols="12" :lg="isPtmLevel ? (selectedLevel === 1 ? 12 : 4) : 6">
             <v-card class="chart-card" elevation="0">
               <v-card-title>
                 <div>
-                  <strong>Cơ cấu dịch vụ · {{ selectedProcedure.title }}</strong>
-                  <span>Tỷ trọng từng dịch vụ trên tổng {{ displayValue(serviceCompositionTotal) }}</span>
+                  <strong>{{ isPtmLevel ? 'Cơ cấu dịch vụ' : `Cơ cấu dịch vụ · ${reportTitle}` }}</strong>
+                  <span v-if="!isPtmLevel">Tỷ trọng từng dịch vụ trên tổng {{ displayValue(serviceCompositionTotal) }}</span>
                 </div>
               </v-card-title>
               <v-card-text>
@@ -541,11 +639,11 @@ onMounted(loadUnits)
       <v-card :key="selectedProcedure.key" class="procedure-card" elevation="0">
         <v-card-title class="procedure-card__head">
           <div>
-            <strong>{{ selectedProcedure.title }}</strong>
-            <small>{{ selectedProcedure.procedure }}</small>
+            <strong>{{ detailTitle }}</strong>
+            <small v-if="!isPtmLevel">{{ selectedProcedure.procedure }}</small>
           </div>
           <div class="procedure-card__status">
-            <v-btn icon="mdi-refresh" size="small" variant="text" color="primary" :loading="states[selectedProcedure.key].loading" title="Gọi lại procedure" @click="runProcedure(selectedProcedure)" />
+            <v-btn icon="mdi-refresh" size="small" variant="text" color="primary" :loading="states[selectedProcedure.key].loading" title="Tải lại dữ liệu" @click="runProcedure(selectedProcedure)" />
           </div>
         </v-card-title>
 
@@ -562,7 +660,7 @@ onMounted(loadUnits)
           hover
           fixed-header
           height="420"
-          :no-data-text="states[selectedProcedure.key].hasRun ? 'Procedure không trả về dữ liệu' : 'Chọn chỉ tiêu hoặc nhấn Lấy dữ liệu để kiểm tra'"
+          :no-data-text="states[selectedProcedure.key].hasRun ? 'Chưa có dữ liệu' : 'Nhấn Lấy dữ liệu để xem báo cáo'"
         >
           <template
             v-for="header in selectedHeaders"
@@ -614,6 +712,15 @@ onMounted(loadUnits)
 .broadband-page { width: min(1500px, calc(100% - 40px)); margin: 0 auto; padding: 28px 0 60px; }
 .page-head { margin-bottom: 22px; }.page-head p { margin: 0 0 5px; color: rgb(var(--v-theme-primary)); font-size: 11px; font-weight: 800; letter-spacing: 1.3px; }.page-head h1 { margin: 0; color: rgb(var(--v-theme-on-background)); font-size: 29px; }.page-head span { display: block; margin-top: 6px; color: rgba(var(--v-theme-on-background), .62); font-size: 14px; }
 .filter-card,.procedure-card { overflow: hidden; border: 0; border-radius: 10px; background: rgb(var(--v-theme-surface)); box-shadow: 0 4px 18px rgba(29,61,83,.09)!important; }.filter-actions { display: flex; justify-content: flex-end; padding-top: 18px; }
+.ptm-summary { border: 0; border-radius: 10px; background: rgb(var(--v-theme-surface)); box-shadow: 0 4px 18px rgba(29,61,83,.09)!important; }
+.ptm-summary__head strong,.ptm-summary__head span { display: block; }
+.ptm-summary__head strong { font-size: 18px; }
+.ptm-summary__head span { margin-top: 3px; color: rgba(var(--v-theme-on-surface),.62); font-size: 12px; }
+.ptm-summary__metrics { display: grid; grid-template-columns: repeat(auto-fit,minmax(145px,1fr)); gap: 10px; margin-top: 16px; }
+.ptm-summary__metric { display: grid; grid-template-columns: 10px 1fr; align-items: center; gap: 4px 8px; padding: 12px; border: 1px solid rgba(var(--v-border-color),.12); border-radius: 9px; background: color-mix(in srgb,rgb(var(--v-theme-primary)) 3%,rgb(var(--v-theme-surface))); }
+.ptm-summary__metric span:nth-child(2) { color: rgba(var(--v-theme-on-surface),.7); font-size: 12px; }
+.ptm-summary__metric strong { grid-column: 2; color: rgb(var(--v-theme-on-surface)); font-size: 20px; font-variant-numeric: tabular-nums; }
+.ptm-summary__dot { width: 10px; height: 10px; border-radius: 3px; }
 .procedure-list { display: grid; gap: 18px; margin-top: 20px; }.procedure-card__head { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 20px; border-bottom: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); white-space: normal; }.procedure-card__head strong,.procedure-card__head small { display: block; }.procedure-card__head strong { font-size: 17px; }.procedure-card__head small { margin-top: 5px; color: rgba(var(--v-theme-on-surface),.54); font-family: Consolas, monospace; font-size: 11px; }.procedure-card__status { display: flex; align-items: center; gap: 8px; }
 .procedure-table { --table-row-even: rgba(var(--v-theme-primary),.022); --table-row-hover: rgba(var(--v-theme-primary),.065); }
 .procedure-table :deep(.v-table__wrapper) { scrollbar-color: rgba(var(--v-theme-primary),.35) transparent; scrollbar-width: thin; }

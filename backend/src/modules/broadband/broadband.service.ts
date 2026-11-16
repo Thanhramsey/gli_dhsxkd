@@ -77,6 +77,14 @@ export class BroadbandService {
       };
     }
 
+    if (key === 'ptm-level') {
+      binds.P_CAP = {
+        dir: oracledb.BIND_IN,
+        type: oracledb.NUMBER,
+        val: input.level ?? 2,
+      };
+    }
+
     Object.assign(binds, {
       P_DICHVU: {
         dir: oracledb.BIND_IN,
@@ -92,7 +100,7 @@ export class BroadbandService {
     });
 
     const result = await this.oracleService.executeProcedure(
-      PACKAGE_NAME,
+      key === 'ptm-level' ? 'NBH_CDS_NEW' : PACKAGE_NAME,
       definition.procedure,
       binds,
     );

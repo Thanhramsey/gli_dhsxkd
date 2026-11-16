@@ -72,6 +72,31 @@ describe('BroadbandService', () => {
     expect(executeProcedure.mock.calls[0]?.[2]).toHaveProperty('P_KHUVUC');
   });
 
+  it('binds the selected PTM hierarchy level to the new procedure', async () => {
+    const executeProcedure = vi.fn().mockResolvedValue({ outBinds: { P_CURSOR: [] } });
+    const service = new BroadbandService({ executeProcedure } as unknown as OracleService);
+
+    await service.execute('ptm-level', {
+      fromDate: '2026-09-01',
+      toDate: '2026-09-21',
+      unitId: 12,
+      serviceId: 0,
+      subscriberTypeId: 0,
+      areaId: 0,
+      level: 3,
+    });
+
+    expect(executeProcedure).toHaveBeenCalledWith(
+      'NBH_CDS_NEW',
+      'TONGHOP_PTM_CAP',
+      expect.objectContaining({
+        P_DONVI: expect.objectContaining({ val: 12, type: oracledb.NUMBER }),
+        P_CAP: expect.objectContaining({ val: 3, type: oracledb.NUMBER }),
+      }),
+    );
+    expect(executeProcedure.mock.calls[0]?.[2]).not.toHaveProperty('P_KHUVUC');
+  });
+
   it('rejects procedure names outside the server allowlist', async () => {
     const executeProcedure = vi.fn();
     const service = new BroadbandService({

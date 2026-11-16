@@ -1,4 +1,9 @@
 export const BROADBAND_PROCEDURES = {
+  'ptm-level': {
+    procedure: 'TONGHOP_PTM_CAP',
+    title: 'Phát triển mới theo cấp địa bàn',
+    hasAreaFilter: false,
+  },
   'ptm-employee': {
     procedure: 'TONGHOP_PTM_NV',
     title: 'Phát triển mới theo nhân viên phát triển',

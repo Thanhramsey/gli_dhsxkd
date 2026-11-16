@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsDateString, IsInt, IsOptional, Matches, Min } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, Matches, Min } from 'class-validator';
 
 export class BroadbandQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/) @IsDateString({ strict: true }) fromDate!: string;
@@ -9,4 +9,5 @@ export class BroadbandQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) serviceId = 0;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) subscriberTypeId = 0;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) areaId = 0;
+  @IsOptional() @Type(() => Number) @IsInt() @IsIn([1, 2, 3]) level?: number;
 }
