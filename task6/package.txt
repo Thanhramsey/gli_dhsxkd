@@ -1,0 +1,1155 @@
+CREATE OR REPLACE PACKAGE BODY NBH_CDS_NEW.BCGIAOBAN_GLI is
+
+  PROCEDURE P_RUN_CREKPI(P_MONTH IN NUMBER)
+  IS
+  P_MONTH_prev number;
+  BEGIN
+
+    P_MONTH_prev := to_char(add_months(to_date(P_MONTH, 'yyyymm'), -1), 'yyyymm');
+
+    --insert b? KPI chung m?c d?nh thang=0
+    insert into nbh_gb_bo_kpi
+    select stt,ma_kpi,null ma_kpi82,loai_kpi,nhom_kpi,ten_kpi,kehoach_thang,kehoach_quy,kehoach_nam,thuchien_9t,P_MONTH,status,sysdate ngay_cre
+    from nbh_gb_bo_kpi a
+    where status=1
+      and thang=0
+      and not exists (select 1 from nbh_gb_bo_kpi c where c.thang=P_MONTH and a.ma_kpi=c.ma_kpi);
+    commit;
+
+    --insert th?c hi?n doanh thu c?p 1
+    insert into nbh_gb_kq_kpi
+    select P_MONTH,ma_kpi,th_thangnay as th_thangtruoc,0,th_nam,null,null,sysdate from nbh_gb_kq_kpi a
+    where thang=P_MONTH_prev
+      and ma_kpi like 'C1DT%'
+      and not exists (select 1 from nbh_gb_kq_kpi b where b.thang=P_MONTH and a.ma_kpi=b.ma_kpi);
+
+
+    --insert k? ho?ch KPI c?p 2
+    insert into nbh_gb_kehoach_kpi
+    select a.ma_kpi,b.diaban_id,a.thang,0,0,0 from
+    nbh_gb_bo_kpi a inner join (select distinct diaban_id from v_donvi_diaban where diaban_id<=15) b on 1=1
+    where a.thang=P_MONTH
+      and a.nhom_kpi='Cap2'
+      and not exists (select 1 from nbh_gb_kehoach_kpi c where c.thang=P_MONTH and a.ma_kpi=c.ma_kpi and b.diaban_id=c.ma_dv);
+    commit;
+
+    --insert th?c hi?n KPI c?p 2
+    insert into nbh_gb_kq_kpi
+    select a.thang,a.ma_kpi,0,0,0,null,b.diaban_id,null from
+    nbh_gb_bo_kpi a inner join (select distinct diaban_id from v_donvi_diaban where diaban_id<=15) b on 1=1
+    where a.thang=P_MONTH
+      and a.nhom_kpi='Cap2'
+      and not exists (select 1 from nbh_gb_kq_kpi c where c.thang=P_MONTH and a.ma_kpi=c.ma_kpi and b.diaban_id=c.ma_dv);
+    commit;
+
+    --update cac ch? tieu c?p 2 ch?a co k? ho?ch
+    merge into nbh_gb_kehoach_kpi a
+    using (select * from nbh_gb_kehoach_kpi where thang=P_MONTH_prev) b
+    on (a.ma_kpi=b.ma_kpi and a.ma_dv=b.ma_dv)
+    when matched then
+    update set a.kehoach=b.kehoach, a.kh_nam=b.kh_nam
+    where a.thang=P_MONTH
+      and a.ma_kpi in ('C2TB04','C2TB05','C2TB07','C2TB08','C2TB09','C2KT01','C2KT02','C2KT03','C2KT04','C2KT05','C2KT06','C2KT07','C2KT08','C2KT09')
+      and a.kehoach=0
+      and a.kh_nam=0;
+  END;
+
+  PROCEDURE P_RUN_SLKPI
+  IS
+  P_MONTH number;
+  BEGIN
+    P_MONTH := to_char(sysdate-1,'yyyymm');
+    --bcgiaoban.P_RUN_SLKPI
+
+    --ham kh?i t?o b? KPI
+  --  bcgiaoban_gli.P_RUN_CREKPI(P_MONTH);
+    bcgiaoban_gli.P_TH_SLPTM_FIBER(P_MONTH);
+
+  END;
+
+
+PROCEDURE P_RUN_SLKPI_MONTH(P_MONTH IN NUMBER)
+  IS
+  BEGIN
+    --ham chay thu cong hang thang
+    --bcgiaoban.P_RUN_SLKPI
+
+    --ham kh?i t?o b? KPI
+    bcgiaoban_gli.P_RUN_CREKPI(P_MONTH);
+
+    commit;
+  END;
+  
+PROCEDURE P_TH_SLPTM_FIBER(P_MONTH IN NUMBER)
+  IS
+  /* Nguyên tắc lấy từ nvpt -> đơn vị
+  */
+  v_makpi VARCHAR2(50);
+ -- P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='SLPTM_FIBER';
+  --  P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+
+    delete from GLI_TH_CHITIEUGB where thang = P_MONTH and ma_kpi = v_makpi;
+    -- toàn tỉnh
+    insert into GLI_TH_CHITIEUGB (thang, ma_kpi, thuchien_thang, thuchien_lk,  ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,thuchien_thang, thuchien_lk_thang,  '237' ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+    (select count(distinct phanvung_id||thuebao_id) thuchien_thang   from gli_tb_ptm where loaitb_id=58 and to_char(ngay_ins,'yyyymm')=P_MONTH) c on 1=1 left join
+    (select count(distinct phanvung_id||thuebao_id) thuchien_lk_thang        from gli_tb_ptm where loaitb_id=58 and to_char(ngay_ins,'yyyy')=P_YEAR and to_char(ngay_ins,'yyyymm')<=P_MONTH) d on 1=1
+    where a.ma_kpi = v_makpi;
+    
+    -- TTVT/VNPTKV/PHÒNG BAN/TTKDGP/TTHT/TTCSKH
+    -- 
+    insert into GLI_TH_CHITIEUGB (thang, ma_kpi,thuchien_thang, thuchien_lk, ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,
+     nvl(th_thangnay,0), nvl(th_nam,0),
+     dv.ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+      (select distinct ma_dv from v_donvi_diaban where muc_id = 2) dv on 1=1 
+  
+    left join
+      (
+      select substr(c.ma_dv,1,7) ma_dv,count(distinct thuebao_id) th_thangnay
+      from gli_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+      inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+      --inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+      where loaitb_id=58 and to_char(ngay_ins,'yyyymm')=P_MONTH
+      group by substr(c.ma_dv,1,7)
+      ) c on dv.ma_dv=c.ma_dv 
+    left join
+      (
+      select substr(c.ma_dv,1,7) ma_dv,count(distinct thuebao_id) th_nam
+      from gli_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+      inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+     -- inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+      where loaitb_id=58 and to_char(ngay_ins,'yyyy')=P_YEAR and to_char(ngay_ins,'yyyymm')<=P_MONTH
+      group by substr(c.ma_dv,1,7)
+      ) d on dv.ma_dv=d.ma_dv
+
+    where a.ma_kpi = v_makpi;
+    
+     -- NHÂN VIÊN PHÁT TRIỂN
+    -- 
+    delete from GLI_TH_CHITIEUGB_NV where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into GLI_TH_CHITIEUGB_NV (thang, ma_kpi,thuchien_thang, thuchien_lk, ma_nv,ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,
+     nvl(th_thangnay,0), nvl(th_nam,0), dv.ma_nv,
+     dv.ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+      (select distinct n.ma_nv, db.ma_dv , n.ten_nv
+              --  select * 
+              from v_donvi_diaban  DB
+              LEFT JOIN V_donvi d on substr(d.ma_dv,1,7) = db.ma_dv 
+              left join v_nhanvien n on n.donvi_id = d.donvi_id and d.phanvung_id = n.phanvung_id
+              join v_nguoidung v on v.trangthai = 1 and v.nhanvien_id = n.nhanvien_id and v.phanvung_id = n.phanvung_id
+              where db.muc_id = 2  and  substr(n.ma_nv,1,3) in ('CTV', 'VNP')
+              order by 2,1        
+              ) dv on 1=1 
+    left join
+      (
+      select b.ma_nv,count(distinct thuebao_id) th_thangnay
+      from gli_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+      --inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+      where loaitb_id=58 and to_char(ngay_ins,'yyyymm')=P_MONTH
+      group by b.ma_nv
+      ) c on dv.ma_nv=c.ma_nv 
+    left join
+      (
+      select b.ma_nv,count(distinct thuebao_id) th_nam
+      from gli_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+   
+     -- inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+      where loaitb_id=58 and to_char(ngay_ins,'yyyy')=P_YEAR and to_char(ngay_ins,'yyyymm')<=P_MONTH
+      group by b.ma_nv
+      ) d on dv.ma_nv=d.ma_nv
+
+    where a.ma_kpi = v_makpi;
+    commit;
+  END;
+PROCEDURE P_TH_DTPTM_FIBER(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+ -- P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='DTPTM_FIBER';
+   -- P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+ --DTPTM_FIBER Fiber
+    delete from GLI_TH_CHITIEUGB where thang = P_MONTH and ma_kpi = v_makpi;
+    -- toàn tỉnh
+    insert into GLI_TH_CHITIEUGB (thang, ma_kpi, thuchien_thang, thuchien_lk,  ma_dv, ngay_cn)
+     select P_MONTH, v_makpi,
+     nvl(th_thangnay,0), nvl(th_nam,0),
+     '237' ma_dv, sysdate cre_date
+    from GLI_DM_CHITIEUGB a left join
+    (select round(sum(doanh_thu)) as th_thangnay  from GLI_hd_thuebao where ky_cuoc=P_MONTH||'01'
+        and loaitb_id = 58 and sl_ptm = 1) c on 1=1 left join
+    (select round(sum(doanh_thu))as th_nam  from GLI_hd_thuebao  where ky_cuoc <= P_MONTH||'01' and substr(ky_cuoc,1,4)=P_YEAR
+        and loaitb_id = 58 and sl_ptm = 1)d on 1=1
+    where  a.ma_kpi = v_makpi;
+    
+     -- TTVT/VNPTKV/PHÒNG BAN/TTKDGP/TTHT/TTCSKH
+    -- 
+    insert into GLI_TH_CHITIEUGB (thang, ma_kpi,thuchien_thang, thuchien_lk, ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,
+     nvl(th_thangnay,0), nvl(th_nam,0),
+     dv.ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+      (select distinct ma_dv from v_donvi_diaban where muc_id = 2) dv on 1=1 
+  
+    left join
+      (
+      select substr(c.ma_dv,1,7) ma_dv,round(sum(doanh_thu)) th_thangnay
+      from GLI_hd_thuebao a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.ctv_id=b.nhanvien_id
+      inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+      --inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+      where a.ky_cuoc=P_MONTH||'01'
+        and a.loaitb_id = 58 and a.sl_ptm = 1
+      group by substr(c.ma_dv,1,7)
+      ) c on dv.ma_dv=c.ma_dv 
+    left join
+      (
+      select substr(c.ma_dv,1,7) ma_dv,round(sum(doanh_thu)) th_nam
+      from GLI_hd_thuebao a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.CTV_id=b.nhanvien_id
+      inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+     -- inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+      where  ky_cuoc <= P_MONTH||'01' and substr(a.ky_cuoc,1,4)=P_YEAR
+        and a.loaitb_id = 58 and a.sl_ptm = 1
+      group by substr(c.ma_dv,1,7)
+      ) d on dv.ma_dv=d.ma_dv
+
+    where a.ma_kpi = v_makpi;
+    
+  commit;
+  END;
+
+/*PROCEDURE P_KQKPI_C1DT05(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1DT05';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+ --C1DT05 Fiber
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+
+    (select round(sum(cuoc_tb)/1000000) as th_thangtruoc  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+        and loaitb_id = 58) b on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000) as th_thangnay  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH
+        and loaitb_id = 58) c on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000)as th_nam  from nbh_tb_ptm  where to_char(ngay_ins,'yyyy')=P_YEAR
+        and loaitb_id = 58)d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+  commit;
+  END;
+*/
+
+
+PROCEDURE P_TH_SLPSC_FIBER(P_MONTH IN NUMBER)
+  IS
+  /* Nguyên tắc lấy từ khu vực -> đơn vị
+  */
+  v_makpi VARCHAR2(50);
+ -- P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='SLPSC_FIBER';
+  --  P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+
+    delete from GLI_TH_CHITIEUGB where thang = P_MONTH and ma_kpi = v_makpi;
+    -- toàn tỉnh
+    insert into GLI_TH_CHITIEUGB (thang, ma_kpi, thuchien_thang, thuchien_lk,  ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,thuchien_thang, thuchien_lk,  '237' ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+    (select count(1) as thuchien_thang from
+    (select a.phanvung_id,a.thuebao_id, sum(nogoc) nogoc  from v_ct_no_bcss a   
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+          and substr(a.ky_cuoc,1,6)= P_MONTH
+       group by a.phanvung_id,a.thuebao_id   
+        )c1
+     where c1.nogoc<>0    ) c on 1=1 left join
+    (select count(1) as thuchien_lk from
+    (select a.phanvung_id, a.thuebao_id, sum(nogoc) nogoc  from v_ct_no_bcss a   
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+          and substr(a.ky_cuoc,1,6)<= P_MONTH and substr(a.ky_cuoc,1,4)  = P_YEAR
+       group by a.phanvung_id,a.thuebao_id
+        )c1
+     where c1.nogoc<>0    ) c on 1=1 
+    where a.ma_kpi = v_makpi;
+    
+    -- TTVT/VNPTKV/PHÒNG BAN/TTKDGP/TTHT/TTCSKH
+    -- 
+    insert into GLI_TH_CHITIEUGB (thang, ma_kpi,thuchien_thang, thuchien_lk, ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,
+     nvl(thuchien_thang,0), nvl(thuchien_lk,0),
+     dv.ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+      (select distinct ma_dv from v_donvi_diaban where muc_id = 2 AND nhom_dvi = 'TTVT') dv on 1=1 
+  
+    left join
+      (
+      select ma_dv, count(1) as thuchien_thang from
+    (select a.phanvung_id,a.thuebao_id,substr(d.ma_dv,1,7) as ma_dv, sum(nogoc) nogoc  
+         from v_ct_no_bcss a 
+        inner join v_dbtb_kv b on a.phanvung_id=b.phanvung_id and a.thuebao_id=b.thuebao_id
+        inner join v_khuvuc_dv c on b.phanvung_id=c.phanvung_id and b.khuvuc_id=c.khuvuc_id
+        inner join v_donvi d on c.donvi_id=d.donvi_id and c.phanvung_id=d.phanvung_id
+         
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+          and substr(a.ky_cuoc,1,6) = P_MONTH 
+          --and substr(a.ky_cuoc,1,6)= '202610'
+            and b.loaikv_id=4
+          and c.loaidv_id=5
+       group by a.phanvung_id,a.thuebao_id , substr(d.ma_dv,1,7) 
+        )c1
+     where c1.nogoc<>0   
+    group by ma_dv 
+      ) c on dv.ma_dv=c.ma_dv 
+    left join
+ 
+         (
+      select ma_DV, count(1) as thuchien_lk from
+    (  select a.phanvung_id,a.thuebao_id,substr(d.ma_dv,1,7) as ma_dv, sum(nogoc) nogoc  
+     from v_ct_no_bcss a 
+        inner join v_dbtb_kv b on a.phanvung_id=b.phanvung_id and a.thuebao_id=b.thuebao_id 
+        inner join v_khuvuc_dv c on b.phanvung_id=c.phanvung_id and b.khuvuc_id=c.khuvuc_id
+        inner join v_donvi d on c.donvi_id=d.donvi_id and c.phanvung_id=d.phanvung_id
+         
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+           and substr(a.ky_cuoc,1,6)<= P_MONTH and substr(a.ky_cuoc,1,4)  = P_YEAR
+       --   and substr(a.ky_cuoc,1,6)= '202610'
+            and b.loaikv_id=4
+          and c.loaidv_id=5
+       group by a.phanvung_id,a.thuebao_id , substr(d.ma_dv,1,7) 
+        )c1
+     where c1.nogoc<>0   
+    group by ma_dv       ) d on dv.ma_dv=d.ma_dv
+
+    where a.ma_kpi = v_makpi;
+    
+     -- NHÂN VIÊN PHÁT TRIỂN
+    -- 
+    delete from GLI_TH_CHITIEUGB_NV where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into GLI_TH_CHITIEUGB_NV (thang, ma_kpi,thuchien_thang, thuchien_lk, ma_nv,ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,
+      nvl(thuchien_thang,0), nvl(thuchien_lk,0), dv.ma_nv,
+     dv.ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+      (select distinct n.ma_nv, db.ma_dv , n.ten_nv
+              --  select * 
+              from v_donvi_diaban  DB
+              LEFT JOIN V_donvi d on substr(d.ma_dv,1,7) = db.ma_dv 
+              left join v_nhanvien n on n.donvi_id = d.donvi_id and d.phanvung_id = n.phanvung_id
+              join v_nguoidung v on v.trangthai = 1 and v.nhanvien_id = n.nhanvien_id and v.phanvung_id = n.phanvung_id
+              where db.muc_id = 2  and  substr(n.ma_nv,1,3) in ('CTV', 'VNP')
+              order by 2,1        
+              ) dv on 1=1 
+    left join
+      (
+       select ma_NV, count(1) as thuchien_thang from
+    (select a.phanvung_id,a.thuebao_id,D.MA_NV as ma_NV, sum(nogoc) nogoc  
+         from v_ct_no_bcss a 
+        inner join v_dbtb_kv b on a.phanvung_id=b.phanvung_id and a.thuebao_id=b.thuebao_id
+        inner join v_khuvuc_NV c on b.phanvung_id=c.phanvung_id and b.khuvuc_id=c.khuvuc_id AND C.LOAINV_ID = 51
+        inner join v_NHANVIEN d on c.NHANVIEN_id=d.NHANVIEN_id and c.phanvung_id=d.phanvung_id
+         
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+          and substr(a.ky_cuoc,1,6) = P_MONTH 
+          --and substr(a.ky_cuoc,1,6)= '202610'
+            and b.loaikv_id=4
+         -- and c.loaidv_id=5
+       group by a.phanvung_id,a.thuebao_id , D.MA_NV 
+        )c1
+     where c1.nogoc<>0   
+    group by ma_NV 
+      ) c on dv.ma_NV=c.ma_NV 
+  LEFT JOIN
+         (
+      select ma_NV, count(1) as thuchien_lk from
+    ( select a.phanvung_id,a.thuebao_id,D.MA_NV as ma_NV, sum(nogoc) nogoc  
+           from v_ct_no_bcss a 
+         inner join v_dbtb_kv b on a.phanvung_id=b.phanvung_id and a.thuebao_id=b.thuebao_id
+        inner join v_khuvuc_NV c on b.phanvung_id=c.phanvung_id and b.khuvuc_id=c.khuvuc_id AND C.LOAINV_ID = 51
+        inner join v_NHANVIEN d on c.NHANVIEN_id=d.NHANVIEN_id and c.phanvung_id=d.phanvung_id
+         
+         
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+           and substr(a.ky_cuoc,1,6)<= P_MONTH and substr(a.ky_cuoc,1,4)  = P_YEAR
+       --   and substr(a.ky_cuoc,1,6)= '202610'
+            and b.loaikv_id=4
+          --and c.loaidv_id=5
+       group by a.phanvung_id,a.thuebao_id ,D.MA_NV 
+        )c1
+     where c1.nogoc<>0   
+    group by ma_NV       ) d on dv.ma_NV=d.ma_NV
+
+    where a.ma_kpi = v_makpi;
+    commit;
+  END;
+
+PROCEDURE P_TH_DT_FIBER(P_MONTH IN NUMBER)
+  IS
+  /* Nguyên tắc lấy từ khu vực -> đơn vị 
+  chưa hoàn thnàh
+  */
+  v_makpi VARCHAR2(50);
+ -- P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='DT_FIBER';
+  --  P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+
+    delete from GLI_TH_CHITIEUGB where thang = P_MONTH and ma_kpi = v_makpi;
+    -- toàn tỉnh
+    insert into GLI_TH_CHITIEUGB (thang, ma_kpi, thuchien_thang, thuchien_lk,  ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,thuchien_thang, thuchien_lk,  '237' ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+    (select SUM(NOGOC) as thuchien_thang from
+    (select a.phanvung_id,a.thuebao_id, sum(nogoc) nogoc  from v_ct_no_bcss a   
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+          and substr(a.ky_cuoc,1,6)= P_MONTH
+       group by a.phanvung_id,a.thuebao_id   
+        )c1
+     where c1.nogoc<>0    ) c on 1=1 left join
+    (select SUM(NOGOC) as thuchien_lk from
+    (select a.phanvung_id, a.thuebao_id, sum(nogoc) nogoc  from v_ct_no_bcss a   
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+          and substr(a.ky_cuoc,1,6)<= P_MONTH and substr(a.ky_cuoc,1,4)  = P_YEAR
+       group by a.phanvung_id,a.thuebao_id
+        )c1
+     where c1.nogoc<>0    ) c on 1=1 
+    where a.ma_kpi = v_makpi;
+    
+    -- TTVT/VNPTKV/PHÒNG BAN/TTKDGP/TTHT/TTCSKH
+    -- 
+    insert into GLI_TH_CHITIEUGB (thang, ma_kpi,thuchien_thang, thuchien_lk, ma_dv, ngay_cn)
+    select P_MONTH, v_makpi,
+     nvl(thuchien_thang,0), nvl(thuchien_lk,0),
+     dv.ma_dv, sysdate ngay_cn
+    from gli_dm_chitieugb a left join
+      (select distinct ma_dv from v_donvi_diaban where muc_id = 2 AND nhom_dvi = 'TTVT') dv on 1=1 
+  
+    left join
+      (
+      select ma_dv, SUM(NOGOC) as thuchien_thang from
+    (select a.phanvung_id,a.thuebao_id,substr(d.ma_dv,1,7) as ma_dv, sum(nogoc) nogoc  
+         from v_ct_no_bcss a 
+        inner join v_dbtb_kv b on a.phanvung_id=b.phanvung_id and a.thuebao_id=b.thuebao_id
+        inner join v_khuvuc_dv c on b.phanvung_id=c.phanvung_id and b.khuvuc_id=c.khuvuc_id
+        inner join v_donvi d on c.donvi_id=d.donvi_id and c.phanvung_id=d.phanvung_id
+         
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+          and substr(a.ky_cuoc,1,6) = P_MONTH 
+          --and substr(a.ky_cuoc,1,6)= '202610'
+            and b.loaikv_id=4
+          and c.loaidv_id=5
+       group by a.phanvung_id,a.thuebao_id , substr(d.ma_dv,1,7) 
+        )c1
+     where c1.nogoc<>0   
+    group by ma_dv 
+      ) c on dv.ma_dv=c.ma_dv 
+    left join
+      (
+      select ma_dv, SUM(NOGOC) as thuchien_lk from
+    (select a.phanvung_id,a.thuebao_id,substr(d.ma_dv,1,7) as ma_dv, sum(nogoc) nogoc  
+         from v_ct_no_bcss a 
+        inner join v_dbtb_kv b on a.phanvung_id=b.phanvung_id and a.thuebao_id=b.thuebao_id 
+        inner join v_khuvuc_dv c on b.phanvung_id=c.phanvung_id and b.khuvuc_id=c.khuvuc_id
+        inner join v_donvi d on c.donvi_id=d.donvi_id and c.phanvung_id=d.phanvung_id
+         
+         where a.loaitb_id = 58 and a.khoanmuctt_id not in (452,3427,3428,3429,3430)
+          and  NOT EXISTS (SELECT 1 FROM vi_khoanmuc_tt_tratruoc x  WHERE x.khoanmuctt_id = a.khoanmuctt_id)
+           and substr(a.ky_cuoc,1,6)<= P_MONTH and substr(a.ky_cuoc,1,4)  = P_YEAR
+       --   and substr(a.ky_cuoc,1,6)= '202610'
+            and b.loaikv_id=4
+          and c.loaidv_id=5
+       group by a.phanvung_id,a.thuebao_id , substr(d.ma_dv,1,7) 
+        )c1
+     where c1.nogoc<>0   
+    group by ma_dv       ) d on dv.ma_dv=d.ma_dv
+
+    where a.ma_kpi = v_makpi;
+    
+     -- NHÂN VIÊN PHÁT TRIỂN
+    -- 
+  
+    commit;
+  END;
+
+
+  PROCEDURE P_KQKPI_C1TB01(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1TB01';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi, th_thangtruoc, th_thangnay, th_nam, null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+    (select count(distinct phanvung_id||thuebao_id) th_thangtruoc from nbh_tb_ptm where loaitb_id=58 and to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT) b on 1=1 left join
+    (select count(distinct phanvung_id||thuebao_id) th_thangnay   from nbh_tb_ptm where loaitb_id=58 and to_char(ngay_ins,'yyyymm')=P_MONTH) c on 1=1 left join
+    (select count(distinct phanvung_id||thuebao_id) th_nam        from nbh_tb_ptm where loaitb_id=58 and to_char(ngay_ins,'yyyy')=P_YEAR and to_char(ngay_ins,'yyyymm')<=P_MONTH) d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+    commit;
+  END;
+
+  PROCEDURE P_KQKPI_C1TB03(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1TB03';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi, th_thangtruoc, th_thangnay, th_nam, null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+    (select count(distinct phanvung_id||thuebao_id) th_thangtruoc from nbh_tb_ptm where loaitb_id=61 and to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT) b on 1=1 left join
+    (select count(distinct phanvung_id||thuebao_id) th_thangnay   from nbh_tb_ptm where loaitb_id=61 and to_char(ngay_ins,'yyyymm')=P_MONTH) c on 1=1 left join
+    (select count(distinct phanvung_id||thuebao_id) th_nam        from nbh_tb_ptm where loaitb_id=61 and to_char(ngay_ins,'yyyy')=P_YEAR and to_char(ngay_ins,'yyyymm')<=P_MONTH) d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+    commit;
+  END;
+
+
+
+  PROCEDURE P_KQKPI_C2TB01(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C2TB01';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, dv.ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+    (select distinct diaban_id as ma_dv from v_donvi_diaban where diaban_id>0) dv on 1=1 left join
+
+    (
+    select d.diaban_id ma_dv,count(distinct thuebao_id) th_thangtruoc
+    from nbh_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+    inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+    inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+    where loaitb_id=58 and to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+    group by d.diaban_id
+    ) b on dv.ma_dv=b.ma_dv left join
+    (
+    select d.diaban_id ma_dv,count(distinct thuebao_id) th_thangnay
+    from nbh_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+    inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+    inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+    where loaitb_id=58 and to_char(ngay_ins,'yyyymm')=P_MONTH
+    group by d.diaban_id
+    ) c on dv.ma_dv=c.ma_dv left join
+    (
+    select d.diaban_id ma_dv,count(distinct thuebao_id) th_nam
+    from nbh_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+    inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+    inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+    where loaitb_id=58 and to_char(ngay_ins,'yyyy')=P_YEAR and to_char(ngay_ins,'yyyymm')<=P_MONTH
+    group by d.diaban_id
+    ) d on dv.ma_dv=d.ma_dv
+
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+    commit;
+  END;
+
+  PROCEDURE P_KQKPI_C2TB03(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C2TB03';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, dv.ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+    (select distinct diaban_id as ma_dv from v_donvi_diaban where diaban_id>0) dv on 1=1 left join
+
+    (
+    select d.diaban_id ma_dv,count(distinct thuebao_id) th_thangtruoc
+    from nbh_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+    inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+    inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+    where loaitb_id=61 and to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+    group by d.diaban_id
+    ) b on dv.ma_dv=b.ma_dv left join
+    (
+    select d.diaban_id ma_dv,count(distinct thuebao_id) th_thangnay
+    from nbh_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+    inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+    inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+    where loaitb_id=61 and to_char(ngay_ins,'yyyymm')=P_MONTH
+    group by d.diaban_id
+    ) c on dv.ma_dv=c.ma_dv left join
+    (
+    select d.diaban_id ma_dv,count(distinct thuebao_id) th_nam
+    from nbh_tb_ptm a inner join v_nhanvien b on a.phanvung_id=b.phanvung_id and a.nvpt_id=b.nhanvien_id
+    inner join v_donvi c on b.phanvung_id=c.phanvung_id and b.donvi_id=c.donvi_id
+    inner join v_donvi_diaban d on substr(c.ma_dv,1,7)=d.ma_dv
+    where loaitb_id=61 and to_char(ngay_ins,'yyyy')=P_YEAR and to_char(ngay_ins,'yyyymm')<=P_MONTH
+    group by d.diaban_id
+    ) d on dv.ma_dv=d.ma_dv
+
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+    commit;
+  END;
+  ---------------------------------------------------------
+  --PHAN DOANH THU
+  ---------------------------------------------------------
+  PROCEDURE P_KQKPI_C1DT01(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1DT01';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+    --C1DT01: CNTT
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+
+    (select round(sum(cuoc_dc+cuoc_km+cuoc_tbi)/1000000, 2)as th_thangtruoc  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+        and dichvuvt_id>12 and loaitb_id not in (210,222,224,386, 131,38,127)) b on 1=1 left join
+    (select round(sum(cuoc_dc+cuoc_km+cuoc_tbi)/1000000, 2)as th_thangnay  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH
+        and dichvuvt_id>12 and loaitb_id not in (210,222,224,386, 131,38,127)) c on 1=1 left join
+    (select round(sum(cuoc_dc+cuoc_km+cuoc_tbi)/1000000, 2) th_nam  from nbh_tb_ptm  where to_char(ngay_ins,'yyyy')=P_YEAR
+        and dichvuvt_id>12 and loaitb_id not in (210,222,224,386, 131,38,127))d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+    commit;
+  END;
+  --Doanh thu CNTT DT_DVS
+
+PROCEDURE P_KQKPI_C1DT02(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1DT02';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+    -- C1DT02: Mytv
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+
+    (select round(sum(cuoc_tb)/1000000) as th_thangtruoc  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+        and loaitb_id in (61,71)) b on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000) as th_thangnay  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH
+        and loaitb_id in (61,71)) c on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000)as th_nam  from nbh_tb_ptm  where to_char(ngay_ins,'yyyy')=P_YEAR
+        and loaitb_id in (61,71))d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+  commit;
+  END;
+
+
+PROCEDURE P_KQKPI_C1DT03(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1DT03';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+    --C1DT03: Mesh/cam
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+
+    (select round(sum(cuoc_tb)/1000000) as th_thangtruoc  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+        and loaitb_id in (210,222,224,386)) b on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000) as th_thangnay  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH
+        and loaitb_id in (210,222,224,386)) c on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000)as th_nam  from nbh_tb_ptm  where to_char(ngay_ins,'yyyy')=P_YEAR
+        and loaitb_id in (210,222,224,386))d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+  commit;
+
+  END;
+
+PROCEDURE P_KQKPI_C1DT05(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1DT05';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+ --C1DT05 Fiber
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+
+    (select round(sum(cuoc_tb)/1000000) as th_thangtruoc  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+        and loaitb_id = 58) b on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000) as th_thangnay  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH
+        and loaitb_id = 58) c on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000)as th_nam  from nbh_tb_ptm  where to_char(ngay_ins,'yyyy')=P_YEAR
+        and loaitb_id = 58)d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+  commit;
+  END;
+
+
+PROCEDURE P_KQKPI_C1DT06(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1DT06';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+    --'C1DT06' :Co dinh
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+
+    (select round(sum(cuoc_tb)/1000000) as th_thangtruoc  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+        and dichvuvt_id in (1,10,11)) b on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000) as th_thangnay  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH
+        and dichvuvt_id in (1,10,11)) c on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000)as th_nam  from nbh_tb_ptm  where to_char(ngay_ins,'yyyy')=P_YEAR
+        and dichvuvt_id in (1,10,11))d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+  commit;
+  END;
+
+
+PROCEDURE P_KQKPI_C1DT07(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1DT07';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+   --C1DT07 internet truc tiép
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+
+    (select round(sum(cuoc_tb)/1000000) as th_thangtruoc  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+        and loaitb_id = 134) b on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000) as th_thangnay  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH
+        and loaitb_id = 134) c on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000)as th_nam  from nbh_tb_ptm  where to_char(ngay_ins,'yyyy')=P_YEAR
+        and loaitb_id = 134)d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+  commit;
+  END;
+
+
+PROCEDURE P_KQKPI_C1DT08(P_MONTH IN NUMBER)
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='C1DT08';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+  -- C1DT08 TSL
+    delete from nbh_gb_kq_kpi where thang = P_MONTH and ma_kpi = v_makpi;
+    insert into nbh_gb_kq_kpi (thang, ma_kpi, th_thangtruoc, th_thangnay, th_nam, ma_nv, ma_dv, cre_date)
+    select P_MONTH, v_makpi,
+    nvl(th_thangtruoc,0), nvl(th_thangnay,0), nvl(th_nam,0),
+    null ma_nv, null ma_dv, sysdate cre_date
+    from nbh_gb_bo_kpi a left join
+
+     (select round(sum(cuoc_tb)/1000000) as th_thangtruoc  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH_CKTT
+        and dichvuvt_id in (7,8,9) and loaitb_id <> 134) b on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000) as th_thangnay  from nbh_tb_ptm where to_char(ngay_ins,'yyyymm')=P_MONTH
+         and dichvuvt_id in (7,8,9) and loaitb_id <> 134) c on 1=1 left join
+    (select round(sum(cuoc_tb)/1000000)as th_nam  from nbh_tb_ptm  where to_char(ngay_ins,'yyyy')=P_YEAR
+         and dichvuvt_id in (7,8,9) and loaitb_id <> 134)d on 1=1
+    where a.thang = P_MONTH and a.ma_kpi = v_makpi;
+  commit;
+  END;
+  -------------------------------------------
+  -- KET THUC PJAN DOANH THU
+  -------------------------------------------
+  PROCEDURE SP_SELECT_DROP_DSKPI(P_NHOMKPI VARCHAR2, P_MONTH VARCHAR2, RSOUT OUT SYS_REFCURSOR) AS
+  BEGIN
+
+    IF P_NHOMKPI in ('Cap2') THEN
+      OPEN RSOUT FOR
+        select ma_kpi,ma_kpi||'-'||ten_kpi ten_kpi from nbh_gb_bo_kpi
+        where thang=P_MONTH and nhom_kpi=P_NHOMKPI
+        order by loai_kpi,stt;
+    ELSE
+      OPEN RSOUT FOR
+        select 'NULL' ma_kpi, 'NULL' ten_kpi from dual;
+    END IF;
+  END;
+
+ PROCEDURE SP_SELECT_DROP_DONVI(P_NHOMKPI VARCHAR2, P_DIABANID VARCHAR2, RSOUT OUT SYS_REFCURSOR) AS
+  BEGIN
+
+    IF P_NHOMKPI in ('Cap1','CLM') THEN
+      OPEN RSOUT FOR
+        select 'ALL' ma_dv, 'Toàn tỉnh' ten_dv from dual;
+
+    ELSIF P_NHOMKPI in ('Cap2') THEN
+      OPEN RSOUT FOR
+        select 'ALL' ma_dv, 'Toàn tỉnh' ten_dv from dual
+        union all
+        select * from
+        (select distinct to_char(diaban_id) ma_dv, ten_diaban ten_dv from v_donvi_diaban where diaban_id>=1 order by diaban_id)
+        where decode(P_DIABANID,0,0,ma_dv)=P_DIABANID;
+
+    ELSIF P_NHOMKPI in ('Cap3','KPI','CNTT') and P_DIABANID=0 THEN
+      OPEN RSOUT FOR
+        select 'ALL' ma_dv, 'Toàn tỉnh' ten_dv from dual
+        union all
+        select * from
+        (select distinct to_char(diaban_id) ma_dv, ten_diaban ten_dv from v_donvi_diaban where diaban_id>=1 order by diaban_id)
+        where decode(P_DIABANID,0,0,ma_dv)=P_DIABANID;
+
+    ELSIF P_NHOMKPI in ('Cap3','KPI','CNTT') and P_DIABANID<>0 THEN
+      OPEN RSOUT FOR
+        select * from
+        (select distinct to_char(diaban_id) ma_dv, ten_diaban ten_dv from v_donvi_diaban where diaban_id>=1 order by diaban_id)
+        where decode(P_DIABANID,0,0,ma_dv)=P_DIABANID;
+
+    ELSE
+      OPEN RSOUT FOR
+        select 'NULL' ma_dv, 'NULL' ten_dv from dual;
+    END IF;
+  END;
+
+--///CHUYỂN DỮ LIỆU VÀO CÁC BẢNG HIỂN THỊ TRÊN GIAO DIỆN 
+--
+PROCEDURE P_DTBRCD(P_MONTH IN NUMBER)
+  /* FIBER+ INTERNET TT
+  Bảng GLI_KQ_KPI_TONG
+  Dữ liệu chốt từ:
+   view_gli_dt_cotloi_psc_theo_kycuoc_db_c2
+   view_gli_dt_tsl_psc_theo_kycuoc_db_c2
+   gli_hd_thuebao
+  */
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='F1.1_C2';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+  -- C1DT08 TSL
+    delete GLI_KQ_KPI_TONG where thang = P_MONTH and ma_kpi = v_makpi;
+insert into GLI_KQ_KPI_TONG(ma_kpi, Kehoach_Thang, Kehoach_Thang_Lk,Thuchien_Thang, Thuchien_Thang_Lk, thang)
+with kehoach as 
+(select v_makpi as ma_kpi,sum(t.ke_hoach_thang) as ke_hoach_thang, sum(t.ke_hoach_lk_thang) as ke_hoach_lk_thang
+,sum(t.ke_hoach_nam) as ke_hoach_nam
+ from gli_ke_hoach t 
+where t.kpi in ('F1.FIBER_C2','F1.DITT_C2' ) and ma_dv = '237' and thang = P_MONTH) 
+, doanhthu as 
+
+(select sum(doanh_thu) as doanh_thu from GLI_HD_THUEBAO d
+        where d.ky_cuoc = P_MONTH||'01' and d.loaitb_id IN (58, 134)
+      
+)
+, doanhthu_lk as 
+(select sum(doanh_thu) as doanh_thu_lk from GLI_HD_THUEBAO d
+        where substr(d.ky_cuoc,1,4) =P_YEAR and d.ky_cuoc <= P_MONTH||'01' and d.loaitb_id IN (58,134)
+          
+)
+select v_makpi as ma_kpi ,ke_hoach_thang, ke_hoach_lk_thang, doanh_thu, doanh_thu_lk, P_MONTH as thang
+from kehoach t1 
+left join doanhthu t2 on 1=1 
+left join doanhthu_lk t3 on 1=1 ;
+  commit;
+  END;
+  
+PROCEDURE P_DTMYTV(P_MONTH IN NUMBER)
+  /* MYTV
+  Bảng GLI_KQ_KPI_TONG
+  Dữ liệu chốt từ:
+   view_gli_dt_cotloi_psc_theo_kycuoc_db_c2
+   view_gli_dt_tsl_psc_theo_kycuoc_db_c2
+   gli_hd_thuebao
+  */
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='F1.5_C2';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+  -- C1DT08 TSL
+    delete GLI_KQ_KPI_TONG where thang = P_MONTH and ma_kpi = v_makpi;
+insert into GLI_KQ_KPI_TONG(ma_kpi, Kehoach_Thang, Kehoach_Thang_Lk,Thuchien_Thang, Thuchien_Thang_Lk, thang)
+with kehoach as 
+(select v_makpi as ma_kpi,sum(t.ke_hoach_thang) as ke_hoach_thang, sum(t.ke_hoach_lk_thang) as ke_hoach_lk_thang
+,sum(t.ke_hoach_nam) as ke_hoach_nam
+ from gli_ke_hoach t 
+where t.kpi in ('F1.MYTV_C2' ) and ma_dv = '237' and thang = P_MONTH) 
+, doanhthu as 
+
+(select sum(doanh_thu) as doanh_thu from GLI_HD_THUEBAO d
+        where d.ky_cuoc = P_MONTH||'01' and d.loaitb_id IN (61,171)
+      
+)
+, doanhthu_lk as 
+(select sum(doanh_thu) as doanh_thu_lk from GLI_HD_THUEBAO d
+        where substr(d.ky_cuoc,1,4) =P_YEAR and d.ky_cuoc <= P_MONTH||'01' and d.loaitb_id IN (61,171)
+          
+)
+select v_makpi as ma_kpi ,ke_hoach_thang, ke_hoach_lk_thang, doanh_thu, doanh_thu_lk, P_MONTH as thang
+from kehoach t1 
+left join doanhthu t2 on 1=1 
+left join doanhthu_lk t3 on 1=1 ;
+  commit;
+  END;  
+PROCEDURE P_TSL(P_MONTH IN NUMBER)
+  /* TSL
+  Bảng GLI_KQ_KPI_TONG
+  Dữ liệu chốt từ:
+    gli_hd_thuebao
+  */
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='F1.2_C2';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+  -- C1DT08 TSL
+    delete GLI_KQ_KPI_TONG where thang = P_MONTH and ma_kpi = v_makpi;
+insert into GLI_KQ_KPI_TONG(ma_kpi, Kehoach_Thang, Kehoach_Thang_Lk,Thuchien_Thang, Thuchien_Thang_Lk, thang)
+with kehoach as 
+(select v_makpi as ma_kpi,sum(t.ke_hoach_thang) as ke_hoach_thang, sum(t.ke_hoach_lk_thang) as ke_hoach_lk_thang
+,sum(t.ke_hoach_nam) as ke_hoach_nam
+ from gli_ke_hoach t 
+where t.kpi in ('F4.3_C2' ) and ma_dv = '237' and thang = P_MONTH) 
+, doanhthu as 
+
+(select sum(doanh_thu) as doanh_thu from GLI_HD_THUEBAO d
+        where d.ky_cuoc = P_MONTH||'01' and d.dich_vu in ('MegaWan','Metronet','Kênh thuê riêng') and d.loaitb_id <> 134
+      
+)
+, doanhthu_lk as 
+(select sum(doanh_thu) as doanh_thu_lk from GLI_HD_THUEBAO d
+        where substr(d.ky_cuoc,1,4) =P_YEAR and d.ky_cuoc <= P_MONTH||'01' and d.dich_vu in ('MegaWan','Metronet','Kênh thuê riêng') and d.loaitb_id <> 134
+          
+)
+select v_makpi as ma_kpi ,ke_hoach_thang, ke_hoach_lk_thang, doanh_thu, doanh_thu_lk, P_MONTH as thang
+from kehoach t1 
+left join doanhthu t2 on 1=1 
+left join doanhthu_lk t3 on 1=1 ;
+  commit;
+  END;    
+PROCEDURE P_MESHCAM(P_MONTH IN NUMBER)
+  /* MESHCAM
+  Bảng GLI_KQ_KPI_TONG
+  Dữ liệu chốt từ:
+    gli_hd_thuebao
+  */
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='F1.6_C2';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+  -- C1DT08 TSL
+    delete GLI_KQ_KPI_TONG where thang = P_MONTH and ma_kpi = v_makpi;
+insert into GLI_KQ_KPI_TONG(ma_kpi, Kehoach_Thang, Kehoach_Thang_Lk,Thuchien_Thang, Thuchien_Thang_Lk, thang)
+with kehoach as 
+(select v_makpi as ma_kpi,sum(t.ke_hoach_thang) as ke_hoach_thang, sum(t.ke_hoach_lk_thang) as ke_hoach_lk_thang
+,sum(t.ke_hoach_nam) as ke_hoach_nam
+ from gli_ke_hoach t 
+where t.kpi in ('F1.CAM_C2','F1.MESH_C2' ) and ma_dv = '237' and thang = P_MONTH) 
+, doanhthu as 
+
+(select sum(doanh_thu) as doanh_thu from GLI_HD_THUEBAO d
+        where d.ky_cuoc = P_MONTH||'01' and d.loaitb_id IN (210,274,222,224)
+      
+)
+, doanhthu_lk as 
+(select sum(doanh_thu) as doanh_thu_lk from GLI_HD_THUEBAO d
+        where substr(d.ky_cuoc,1,4) =P_YEAR and d.ky_cuoc <= P_MONTH||'01' and d.loaitb_id IN  (210,274,222,224)
+          
+)
+select v_makpi as ma_kpi ,ke_hoach_thang, ke_hoach_lk_thang, doanh_thu, doanh_thu_lk, P_MONTH as thang
+from kehoach t1 
+left join doanhthu t2 on 1=1 
+left join doanhthu_lk t3 on 1=1 ;
+  commit;
+  END;      
+PROCEDURE P_DVS(P_MONTH IN NUMBER)
+  /* DVS
+  Bảng GLI_KQ_KPI_TONG
+  Dữ liệu chốt từ:
+    gli_hd_thuebao
+  */
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='F1.4_C2';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+  -- C1DT08 TSL
+    delete GLI_KQ_KPI_TONG where thang = P_MONTH and ma_kpi = v_makpi;
+insert into GLI_KQ_KPI_TONG(ma_kpi, Kehoach_Thang, Kehoach_Thang_Lk,Thuchien_Thang, Thuchien_Thang_Lk, thang)
+with kehoach as 
+(select v_makpi as ma_kpi,sum(t.ke_hoach_thang) as ke_hoach_thang, sum(t.ke_hoach_lk_thang) as ke_hoach_lk_thang
+,sum(t.ke_hoach_nam) as ke_hoach_nam
+ from gli_ke_hoach t 
+where t.kpi in ('F4.1_C2' ) and ma_dv = '237' and thang = P_MONTH) 
+, doanhthu as 
+ (SELECT
+     SUM(NVL(A.NOGOC, 0)) AS DOANH_THU
+  FROM V_CT_NO_BCSS A
+   WHERE A.KY_CUOC = p_MONTH||'01'
+       AND A.KHOANMUCTT_ID NOT IN(452, 3427, 3428, 3429, 3430)
+    AND NOT EXISTS(SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X
+        WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID) and a.dichvuvt_id in (13,14,15,16)  ) 
+, doanhthu_lk as 
+(SELECT
+     SUM(NVL(A.NOGOC, 0)) AS DOANH_THU_LK
+  FROM V_CT_NO_BCSS A
+   WHERE A.KY_CUOC <= p_MONTH||'01' AND SUBSTR(A.KY_CUOC,1,4)=P_YEAR
+       AND A.KHOANMUCTT_ID NOT IN(452, 3427, 3428, 3429, 3430)
+    AND NOT EXISTS(SELECT 1 FROM VI_KHOANMUC_TT_TRATRUOC X
+        WHERE X.KHOANMUCTT_ID = A.KHOANMUCTT_ID) and a.dichvuvt_id in (13,14,15,16)         
+)
+select v_makpi as ma_kpi ,ke_hoach_thang, ke_hoach_lk_thang, doanh_thu, doanh_thu_lk, P_MONTH as thang
+from kehoach t1 
+left join doanhthu t2 on 1=1 
+left join doanhthu_lk t3 on 1=1 ;
+  commit;
+  END;     
+  --gli_tb_dd_psc
+PROCEDURE P_DIDONG(P_MONTH IN NUMBER)
+  /* DI ĐỘNG
+  Bảng GLI_KQ_KPI_TONG
+  Dữ liệu chốt từ:
+    gli_TB_DD_PSC
+  */
+  IS
+  v_makpi VARCHAR2(50);
+  P_MONTH_CKTT VARCHAR2(6);
+  P_YEAR VARCHAR2(4);
+  BEGIN
+    v_makpi:='F1.3_C2';
+    P_MONTH_CKTT := TO_CHAR(ADD_MONTHS(TO_DATE(P_MONTH,'YYYYMM'), -1), 'YYYYMM');
+    P_YEAR := SUBSTR(P_MONTH,1,4);
+ 
+    delete GLI_KQ_KPI_TONG where thang = P_MONTH and ma_kpi = v_makpi;
+insert into GLI_KQ_KPI_TONG(ma_kpi, Kehoach_Thang, Kehoach_Thang_Lk,Thuchien_Thang, Thuchien_Thang_Lk, thang)
+with kehoach as 
+(select v_makpi as ma_kpi,sum(t.ke_hoach_thang) as ke_hoach_thang, sum(t.ke_hoach_lk_thang) as ke_hoach_lk_thang
+,sum(t.ke_hoach_nam) as ke_hoach_nam
+ from gli_ke_hoach t 
+where t.kpi in ('F3.1_C2' ) and ma_dv = '237' and thang = P_MONTH) 
+, doanhthu as 
+ (SELECT
+     SUM(A.DT_DD_TT+A.DT_DD_TS) AS DOANH_THU
+  FROM GLI_TB_DD_PSC A 
+  WHERE A.KY_CUOC = P_MONTH || '01'  ) 
+, doanhthu_lk as 
+(SELECT
+     SUM(A.DT_DD_TT+A.DT_DD_TS) AS DOANH_THU_LK
+  FROM GLI_TB_DD_PSC A 
+  WHERE A.KY_CUOC <= p_MONTH||'01' AND SUBSTR(A.KY_CUOC,1,4)=P_YEAR
+    )
+select v_makpi as ma_kpi ,ke_hoach_thang, ke_hoach_lk_thang, doanh_thu, doanh_thu_lk, P_MONTH as thang
+from kehoach t1 
+left join doanhthu t2 on 1=1 
+left join doanhthu_lk t3 on 1=1 ;
+  commit;
+  END;         
+--///////////////////////////////////////////////////////
+-- VIEW GIAO DIỆN
+---/////////////////////////////
+--- NHÓM CHỈ TIÊU PTM
+PROCEDURE SP_VIEW_PTM_FIBER( P_MONTH VARCHAR2, RSOUT OUT SYS_REFCURSOR) AS
+  BEGIN
+  OPEN RSOUT FOR
+            SELECT dm.ten_kpi, dm.ma_kpi , c2.nhom_dvi, c2.ma_dv, c2.ten_dv,P_MONTH AS thang, ROUND(NVL(kh.ke_hoach_thang,0),0) AS ke_hoach_thang, ROUND(NVL(kh.ke_hoach_lk_thang,0),0) AS ke_hoach_thang_lk 
+                     ,NVL(kh.ke_hoach_nam,0) AS ke_hoach_nam, NVL(th.thuchien_thang, 0) AS thuchien_thang, NVL(th.thuchien_lk,0) AS thuchien_lk
+              FROM (select distinct ma_dv, ten_dv, nhom_dvi from v_donvi_diaban where  nhom_dvi IN ('TTVT','VNPT','TOANTINH')) C2 
+              LEFT JOIN  gli_dm_chitieugb dm ON 1=1
+              LEFT JOIN gli_kh_chitieugb kh ON kh.ma_Dv = c2.ma_dv AND kh.thang =P_MONTH  AND kh.ma_kpi = dm.ma_kpi
+              LEFT JOIN gli_th_chitieugb th ON th.ma_dv = c2.ma_dv AND th.thang=P_MONTH AND th.ma_kpi = dm.ma_kpi 
+              WHERE dm.ma_kpi IN ('SLPTM_FIBER','DTPTM_FIBER')
+              ORDER BY 1,4 ;
+
+  END;
+  
+  
+end BCGIAOBAN_GLI;

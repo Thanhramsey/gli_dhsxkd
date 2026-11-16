@@ -48,4 +48,10 @@ export class KpiController {
   subscriberMovement(@Body() input: KpiQueryDto) {
     return this.service.subscriberMovement(input.month);
   }
+
+  @Post('fiber-development')
+  @ApiOperation({ summary: 'Kế hoạch và thực hiện phát triển mới Fiber theo nhóm đơn vị' })
+  fiberDevelopment(@Body() input: KpiQueryDto) {
+    return this.service.fiberDevelopment(input.month);
+  }
 }

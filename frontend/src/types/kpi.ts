@@ -13,6 +13,24 @@ export interface KpiSummary {
   rows: KpiRow[]
 }
 
+export interface KpiFiberDevelopmentRow {
+  kpi: string
+  kpiName: string
+  unitGroup: string
+  unitCode: string
+  unitName: string
+  plan: number | null
+  actual: number | null
+  cumulativePlan: number | null
+  cumulativeActual: number | null
+  annualPlan: number | null
+}
+
+export interface KpiFiberDevelopment {
+  month: string
+  rows: KpiFiberDevelopmentRow[]
+}
+
 export interface KpiSubscriberMovementRow {
   centerCode: string
   centerName: string

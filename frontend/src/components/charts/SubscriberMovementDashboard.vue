@@ -12,10 +12,29 @@ const services = [
   { title: 'Mesh', value: 'MESH' }, { title: 'Cố định', value: 'CD' },
   { title: 'GPhone', value: 'GP' }, { title: 'IMS', value: 'IMS' },
 ]
-const service = ref('ALL')
-const center = ref('')
-const team = ref('')
-const level = computed(() => team.value ? 'area' : center.value ? 'team' : 'center')
+const selectedServices = ref<string[]>(['ALL'])
+const activeServices = computed(() => services.filter(item => item.value !== 'ALL' && (selectedServices.value.includes('ALL') || selectedServices.value.includes(item.value))))
+const service = computed(() => activeServices.value.length === 1 ? activeServices.value[0]!.value : 'FILTERED')
+function updateServices(values: string[]) {
+  const selected = values.filter(value => services.some(item => item.value === value))
+  if (selected.includes('ALL') && !selectedServices.value.includes('ALL')) {
+    selectedServices.value = ['ALL']
+    return
+  }
+  const specific = selected.filter(value => value !== 'ALL')
+  selectedServices.value = !specific.length || specific.length === services.length - 1 ? ['ALL'] : specific
+}
+const center = ref<string[]>([])
+const team = ref<string[]>([])
+function normalizeUnits(values: string[] | null, previous: string[]) {
+  if (values?.includes('') && previous.length) return []
+  return (values ?? []).filter(Boolean)
+}
+function updateCenters(values: string[] | null) {
+  center.value = normalizeUnits(values, center.value)
+  if (!center.value.length) team.value = []
+}
+const level = computed(() => team.value.length ? 'area' : center.value.length ? 'team' : 'center')
 const levelName = computed(() => level.value === 'center' ? 'trung tâm' : level.value === 'team' ? 'tổ / trạm' : 'địa bàn')
 const selectedKey = ref<string | null>(null)
 const overview = ref<HTMLElement | null>(null)
@@ -30,7 +49,7 @@ const search = ref('')
 const nf = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 })
 const count = (value: number | null | undefined) => value == null ? '—' : nf.format(value)
 const netColor = (value: number | null | undefined) => value == null ? '#718397' : value < 0 ? '#c62828' : value > 0 ? '#0067b1' : '#526a7b'
-const serviceName = computed(() => services.find(item => item.value === service.value)?.title ?? '')
+const serviceName = computed(() => selectedServices.value.includes('ALL') ? 'Tất cả dịch vụ' : activeServices.value.length <= 2 ? activeServices.value.map(item => item.title).join(' + ') : `${activeServices.value.length} dịch vụ`)
 const monthLabel = computed(() => `tháng ${Number(props.month.slice(5))}/${props.month.slice(0, 4)}`)
 // Excel exports may include presentation subtotals; never add them to their detail rows.
 const detailRows = computed(() => props.rows
@@ -38,8 +57,8 @@ const detailRows = computed(() => props.rows
   .map(row => {
     const values = { ...row.values }
     for (const metric of ['PT', 'HUY', 'NG', 'KP', 'TT']) {
-      const amounts = services.filter(item => item.value !== 'ALL').map(item => row.values[`${item.value}_${metric}`])
-      values[`ALL_${metric}`] = amounts.some(value => value == null)
+      const amounts = activeServices.value.map(item => row.values[`${item.value}_${metric}`])
+      values[`FILTERED_${metric}`] = amounts.some(value => value == null)
         ? null
         : amounts.reduce<number>((total, value) => total + value!, 0)
     }
@@ -48,12 +67,12 @@ const detailRows = computed(() => props.rows
 const centerKey = (row: KpiSubscriberMovementRow) => row.centerCode || row.centerName
 const teamKey = (row: KpiSubscriberMovementRow) => JSON.stringify([centerKey(row), row.teamCode || row.teamName])
 const centerOptions = computed(() => [{ title: 'Tất cả trung tâm', value: '' }, ...Array.from(new Map(detailRows.value.map(row => [centerKey(row), { title: row.centerName || 'Chưa xác định', value: centerKey(row) }])).values())])
-const centerRows = computed(() => detailRows.value.filter(row => !center.value || centerKey(row) === center.value))
-const teamOptions = computed(() => [{ title: 'Tất cả tổ / trạm của trung tâm', value: '' }, ...Array.from(new Map(centerRows.value.map(row => [teamKey(row), { title: row.teamName || 'Chưa xác định', value: teamKey(row) }])).values())])
-const centerName = computed(() => centerOptions.value.find(item => item.value === center.value)?.title ?? '')
-const teamName = computed(() => teamOptions.value.find(item => item.value === team.value)?.title ?? '')
-const filterScope = computed(() => team.value ? `${centerName.value} / ${teamName.value}` : center.value ? centerName.value : 'Tất cả trung tâm')
-const filteredRows = computed(() => centerRows.value.filter(row => !team.value || teamKey(row) === team.value))
+const centerRows = computed(() => detailRows.value.filter(row => !center.value.length || center.value.includes(centerKey(row))))
+const teamOptions = computed(() => [{ title: 'Tất cả tổ / trạm của trung tâm', value: '' }, ...Array.from(new Map(centerRows.value.map(row => [teamKey(row), { title: `${row.teamName || 'Chưa xác định'}${center.value.length > 1 ? ` · ${shortName(row.centerName)}` : ''}`, value: teamKey(row) }])).values())])
+const centerName = computed(() => center.value.length > 2 ? `${center.value.length} trung tâm` : centerOptions.value.filter(item => center.value.includes(item.value)).map(item => item.title).join(' + '))
+const teamName = computed(() => team.value.length > 2 ? `${team.value.length} tổ / trạm` : teamOptions.value.filter(item => team.value.includes(item.value)).map(item => item.title).join(' + '))
+const filterScope = computed(() => team.value.length ? `${centerName.value} / ${teamName.value}` : center.value.length ? centerName.value : 'Tất cả trung tâm')
+const filteredRows = computed(() => centerRows.value.filter(row => !team.value.length || team.value.includes(teamKey(row))))
 const metrics = computed(() => {
   const prefix = service.value
   const common = [
@@ -94,9 +113,10 @@ const serviceShareRows = computed(() => {
   const colors = ['#0067b1', '#0c8b8d', '#d99b30', '#7c66a5', '#46627c', '#4885c4']
   return services.filter(item => item.value !== 'ALL').map((item, index) => ({
     name: item.title,
+    code: item.value,
     value: scopeTotals.value[`${item.value}_${serviceShareMetric.value}`] ?? null,
     itemStyle: { color: colors[index] },
-  }))
+  })).filter(item => activeServices.value.some(service => service.value === item.code))
 })
 const serviceShareTotal = computed(() => serviceShareRows.value.some(row => row.value == null || !Number.isFinite(row.value) || row.value < 0)
   ? null
@@ -118,8 +138,7 @@ const serviceShareOption = computed(() => ({
     data: serviceShareRows.value.map(row => ({ ...row, value: row.value ?? 0, label: { show: row.value != null && row.value > 0 } })),
   }],
 }))
-const serviceNetRows = computed(() => services
-  .filter(item => item.value !== 'ALL')
+const serviceNetRows = computed(() => activeServices.value
   .map(item => ({
     name: item.title,
     actual: scopeTotals.value[`${item.value}_TT`] ?? null,
@@ -261,13 +280,20 @@ const headers = computed(() => [
   { title: 'Hủy / phát triển mới', key: 'cancelRatio', align: 'end' as const },
 ])
 const tableRows = computed(() => groups.value.map(group => ({ ...group.values, key: group.key, name: group.name, context: group.context, net: group.values[`${service.value}_TT`], cancelRatio: cancelRatio(group.values) })))
-watch(center, () => { team.value = '' })
+watch(teamOptions, options => {
+  const valid = new Set(options.map(item => item.value))
+  const remaining = team.value.filter(value => valid.has(value))
+  if (remaining.length !== team.value.length) team.value = remaining
+})
 watch([center, team, level, () => props.rows], () => { selectedKey.value = null })
 function drillSelected() {
   const row = selectedGroup.value?.rows[0]
   if (!row) return
-  if (level.value === 'center') center.value = centerKey(row)
-  else if (level.value === 'team') team.value = teamKey(row)
+  if (level.value === 'center') center.value = [centerKey(row)]
+  else if (level.value === 'team') {
+    center.value = [centerKey(row)]
+    team.value = [teamKey(row)]
+  }
 }
 </script>
 
@@ -277,10 +303,10 @@ function drillSelected() {
     <template v-else>
       <v-card class="movement-card movement-filters" elevation="0">
         <div class="filter-label">Dịch vụ</div>
-        <v-chip-group v-model="service" mandatory class="service-chips" selected-class="service-chip-selected" aria-label="Dịch vụ"><v-chip v-for="item in services" :key="item.value" :value="item.value" class="service-chip" variant="flat" filter>{{ item.title }}</v-chip></v-chip-group>
+        <v-chip-group :model-value="selectedServices" multiple mandatory class="service-chips" selected-class="service-chip-selected" aria-label="Dịch vụ" @update:model-value="updateServices"><v-chip v-for="item in services" :key="item.value" :value="item.value" class="service-chip" variant="flat" filter>{{ item.title }}</v-chip></v-chip-group>
         <div class="movement-filter-row">
-          <v-select v-model="center" :items="centerOptions" label="Trung tâm viễn thông" variant="outlined" density="compact" hide-details />
-          <v-select v-model="team" :items="teamOptions" :disabled="!center" label="Tổ / trạm thuộc trung tâm" variant="outlined" density="compact" hide-details />
+          <v-select :model-value="center.length ? center : ['']" :items="centerOptions" multiple chips closable-chips clearable label="Trung tâm viễn thông" variant="outlined" density="compact" hide-details @update:model-value="updateCenters" />
+          <v-select :model-value="team.length ? team : ['']" :items="teamOptions" :disabled="!center.length" multiple chips closable-chips clearable label="Tổ / trạm thuộc trung tâm" variant="outlined" density="compact" hide-details @update:model-value="team = normalizeUnits($event, team)" />
         </div>
 
       </v-card>
@@ -324,7 +350,7 @@ function drillSelected() {
       </v-card>
       <v-card class="movement-card detail-card">
         <div class="chart-heading"><div><strong>Chi tiết {{ serviceName }} theo {{ levelName }}</strong><small>{{ filterScope }} · {{ monthLabel }}</small></div></div>
-        <div class="table-toolbar"><v-text-field v-model="search" label="Tìm đơn vị" prepend-inner-icon="mdi-magnify" variant="outlined" density="compact" hide-details /><v-switch v-if="service !== 'ALL'" v-model="tableDetails" label="Thêm chỉ tiêu chi tiết" color="primary" density="compact" hide-details /></div>
+        <div class="table-toolbar"><v-text-field v-model="search" label="Tìm đơn vị" prepend-inner-icon="mdi-magnify" variant="outlined" density="compact" hide-details /><v-switch v-if="activeServices.length === 1" v-model="tableDetails" label="Thêm chỉ tiêu chi tiết" color="primary" density="compact" hide-details /></div>
         <v-data-table :headers="headers" :items="tableRows" item-value="key" :search="search" :items-per-page="20" :items-per-page-options="[10, 20, 50, 100]" :sort-by="[{ key: `${service}_TT`, order: 'asc' }]" density="comfortable" hover class="movement-table">
           <template #item.name="{ item }"><button class="unit-button" :style="{ color: netColor(item.net) }" :class="{ selected: selectedKey === item.key }" :aria-pressed="selectedKey === item.key" @click="selectTableGroup(item.key)">{{ item.name }}<small v-if="item.context">{{ item.context }}</small></button></template>
           <template v-for="metric in metrics" :key="metric.key" #[`item.${metric.key}`]="{ value }"><span :style="metric.key.endsWith('_TT') ? { color: netColor(value), fontWeight: 600 } : {}">{{ count(value) }}</span></template>

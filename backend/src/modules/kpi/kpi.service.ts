@@ -112,6 +112,38 @@ export interface KpiPscRow {
 export class KpiService {
   constructor(private readonly oracleService: OracleService) {}
 
+  async fiberDevelopment(month: string) {
+    const result = await this.oracleService.executeProcedure(
+      'NBH_CDS_NEW.BCGIAOBAN_GLI',
+      'SP_VIEW_PTM_FIBER',
+      {
+        P_MONTH: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: month.replace('-', '') },
+        RSOUT: { dir: oracledb.BIND_OUT, type: oracledb.CURSOR },
+      },
+    );
+    const rawRows = result.outBinds?.RSOUT;
+    const number = (value: unknown): number | null => {
+      if (value == null || String(value).trim() === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+      month,
+      rows: Array.isArray(rawRows) ? rawRows.map((row: Record<string, unknown>) => ({
+        kpi: String(row.MA_KPI ?? '').trim(),
+        kpiName: String(row.TEN_KPI ?? '').trim(),
+        unitGroup: String(row.NHOM_DVI ?? '').trim().toUpperCase(),
+        unitCode: String(row.MA_DV ?? '').trim(),
+        unitName: String(row.TEN_DV ?? '').trim(),
+        plan: number(row.KE_HOACH_THANG),
+        actual: number(row.THUCHIEN_THANG),
+        cumulativePlan: number(row.KE_HOACH_THANG_LK),
+        cumulativeActual: number(row.THUCHIEN_LK),
+        annualPlan: number(row.KE_HOACH_NAM),
+      })) : [],
+    };
+  }
+
   async subscriberMovement(month: string) {
     const [year, monthNumber] = month.split('-').map(Number);
     const monthText = String(monthNumber).padStart(2, '0');
