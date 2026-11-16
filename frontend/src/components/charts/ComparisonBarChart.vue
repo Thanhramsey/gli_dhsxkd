@@ -8,7 +8,16 @@ const props = defineProps<{
   series: Array<{ name: string; data: number[]; color: string }>
   orientation: 'vertical' | 'horizontal'
   loading?: boolean
+  selectable?: boolean
+  selectedCategory?: string | null
 }>()
+const emit = defineEmits<{ 'select-category': [category: string] }>()
+
+function onChartClick(params: { componentType?: string; dataIndex?: number }): void {
+  if (!props.selectable || params.componentType !== 'series' || !Number.isInteger(params.dataIndex)) return
+  const category = props.categories[params.dataIndex!]
+  if (category !== undefined) emit('select-category', category)
+}
 
 const numberFormatter = new Intl.NumberFormat('vi-VN')
 const rankColorStops = [
@@ -144,9 +153,12 @@ const option = computed(() => {
       color: metric.color,
       data: metric.data.map((value, index) => ({
         value,
-        itemStyle: { color: hasMultipleSeries
-          ? metric.color
-          : rankColor(index, metric.data.length) },
+        itemStyle: {
+          color: hasMultipleSeries ? metric.color : rankColor(index, metric.data.length),
+          opacity: props.selectedCategory && props.selectedCategory !== props.categories[index] ? .4 : 1,
+          borderColor: props.selectedCategory === props.categories[index] ? '#173b5c' : undefined,
+          borderWidth: props.selectedCategory === props.categories[index] ? 2 : 0,
+        },
       })),
       barMaxWidth: hasMultipleSeries ? 22 : 34,
       itemStyle: {
@@ -166,9 +178,10 @@ const option = computed(() => {
 </script>
 
 <template>
-  <v-chart class="comparison-chart" :option="option" :update-options="{ replaceMerge: ['series'] }" :loading="loading" autoresize />
+  <v-chart class="comparison-chart" :class="{ 'comparison-chart--selectable': selectable }" :option="option" :update-options="{ replaceMerge: ['series'] }" :loading="loading" autoresize @click="onChartClick" />
 </template>
 
 <style scoped>
 .comparison-chart { width: 100%; height: 410px; }
+.comparison-chart--selectable { cursor: pointer; }
 </style>

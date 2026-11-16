@@ -21,7 +21,9 @@ interface ProcedureState {
   loading: boolean
   hasRun: boolean
   error: string
+  comparisonError: string
   rows: Array<Record<string, unknown>>
+  previousRows: Array<Record<string, unknown>>
   durationMs: number
 }
 
@@ -51,13 +53,14 @@ const levelItems = [
 const selectedUnitId = ref(0)
 const selectedMetricKeys = ref<string[]>([])
 const selectedGroupKey = ref<string | null>(null)
+const selectedCategory = ref<string | null>(null)
 const unitSearch = ref('')
 const units = ref<BroadbandUnit[]>([])
 const unitsLoading = ref(false)
 const generalError = ref('')
 const requestVersions: Partial<Record<BroadbandProcedureKey, number>> = {}
 function emptyState(): ProcedureState {
-  return { loading: false, hasRun: false, error: '', rows: [], durationMs: 0 }
+  return { loading: false, hasRun: false, error: '', comparisonError: '', rows: [], previousRows: [], durationMs: 0 }
 }
 
 const states = reactive<Record<BroadbandProcedureKey, ProcedureState>>({
@@ -156,16 +159,39 @@ const selectedMetrics = computed(() => numericFields.value.filter((field) =>
 const allMetricsSelected = computed(() =>
   numericFields.value.length > 0 && selectedMetrics.value.length === numericFields.value.length,
 )
+function rowCategory(row: Record<string, unknown>, categoryKey: string): string {
+  const baseCategory = String(row[categoryKey] ?? '').trim() || 'Chưa xác định'
+  const employeeCode = String(row['Mã nhân viên'] ?? '').trim()
+  return isPtmLevel.value && selectedLevel.value === 3
+    ? `${baseCategory} · ${employeeCode || String(row['Tên đơn vị địa bàn'] ?? '').trim()}`
+    : baseCategory
+}
+
+function scopeKey(row: Record<string, unknown>): string {
+  const unit = String(row['Tên đơn vị địa bàn'] ?? '').trim()
+  if (selectedLevel.value === 2) return unit
+  const employeeCode = String(row['Mã nhân viên'] ?? '').trim()
+  return employeeCode || `${unit}\u0000${String(row['Tên nhân viên'] ?? '').trim()}`
+}
+
+const selectedScopeKeys = computed(() => {
+  if (!selectedCategory.value || !categoryField.value) return null
+  return new Set(filteredRows.value
+    .filter((row) => rowCategory(row, categoryField.value!.key) === selectedCategory.value)
+    .map(scopeKey))
+})
+
+function toggleCategory(category: string): void {
+  selectedCategory.value = selectedCategory.value === category ? null : category
+}
+
 const chartData = computed(() => {
   if (!selectedMetrics.value.length || !categoryField.value) return []
   const categoryKey = categoryField.value.key
   const grouped = new Map<string, Record<string, number>>()
 
   for (const row of filteredRows.value) {
-    const baseCategory = String(row[categoryKey] ?? '').trim() || 'Chưa xác định'
-    const category = isPtmLevel.value && selectedLevel.value === 3
-      ? `${baseCategory} · ${String(row['Mã nhân viên'] ?? row['Tên đơn vị địa bàn'] ?? '').trim()}`
-      : baseCategory
+    const category = rowCategory(row, categoryKey)
     const totals = grouped.get(category) ?? {}
     for (const metric of selectedMetrics.value) {
       const value = row[metric.key]
@@ -184,6 +210,9 @@ const chartData = computed(() => {
     )
 })
 const chartCategories = computed(() => chartData.value.map((item) => item.category))
+watch(chartCategories, (categories) => {
+  if (selectedCategory.value && !categories.includes(selectedCategory.value)) selectedCategory.value = null
+})
 const chartSeries = computed(() => selectedMetrics.value.map((metric) => ({
   name: metric.title,
   data: chartData.value.map((item) => item.totals[metric.key] ?? 0),
@@ -205,7 +234,30 @@ const serviceMetricTotals = computed(() => numericFields.value
       return sum + (typeof value === 'number' && Number.isFinite(value) ? value : 0)
     }, 0),
   })))
-const ptmMetricTotals = computed(() => serviceMetricTotals.value)
+const previousMonth = computed(() => new Date(yearNumber.value, monthNumber.value - 2, 1))
+const previousMonthLabel = computed(() => `Tháng ${previousMonth.value.getMonth() + 1}/${previousMonth.value.getFullYear()}`)
+const isCurrentMonth = computed(() => yearNumber.value === today.getFullYear() && monthNumber.value === today.getMonth() + 1)
+const previousCompareDay = computed(() => Math.min(
+  today.getDate(),
+  new Date(previousMonth.value.getFullYear(), previousMonth.value.getMonth() + 1, 0).getDate(),
+))
+const comparisonLabel = computed(() => isCurrentMonth.value
+  ? `1–${today.getDate()}/${monthNumber.value}/${yearNumber.value} so với 1–${previousCompareDay.value}/${previousMonth.value.getMonth() + 1}/${previousMonth.value.getFullYear()}`
+  : `${monthLabel.value} so với ${previousMonthLabel.value.toLowerCase()}`)
+const ptmMetricTotals = computed(() => numericFields.value.map((field, index) => {
+  const sum = (rows: Array<Record<string, unknown>>) => rows
+    .filter((row) => !isExistingTotal(row) && (!selectedScopeKeys.value || selectedScopeKeys.value.has(scopeKey(row))))
+    .reduce((total, row) => total + Number(row[field.key] ?? 0), 0)
+  const value = sum(states['ptm-level'].rows)
+  const previous = sum(states['ptm-level'].previousRows)
+  return {
+    name: field.title,
+    color: chartMetricColor(index),
+    value,
+    previous,
+    change: previous > 0 ? (value - previous) / previous * 100 : null,
+  }
+}))
 const serviceCompositionItems = computed(() => serviceMetricTotals.value
   .filter((item) => !(
     isXgsponProcedure.value && normalizeSearch(item.name) === 'tong xgspon'
@@ -231,13 +283,21 @@ watch(numericFields, (fields) => {
     )?.key ?? fields[0]!.key]
   }
 })
-watch(selectedProcedureKey, () => { selectedMetricKeys.value = [] }, { flush: 'sync' })
+watch(selectedProcedureKey, () => {
+  selectedMetricKeys.value = []
+  selectedCategory.value = null
+}, { flush: 'sync' })
 watch(selectedLevel, () => {
+  selectedCategory.value = null
   if (selectedLevel.value === 1) clearUnitSelection()
   states['ptm-level'].rows = []
+  states['ptm-level'].previousRows = []
+  states['ptm-level'].hasRun = false
+  states['ptm-level'].comparisonError = ''
   columnFilters['ptm-level'] = {}
   if (isPtmLevel.value) void runSelected('ptm-level')
 })
+watch(selectedUnitId, () => { selectedCategory.value = null })
 watch(groupingFields, (fields) => {
   if (!fields.some((field) => field.key === selectedGroupKey.value)) {
     selectedGroupKey.value = (
@@ -262,12 +322,15 @@ function selectMonth(month: number): void {
   yearNumber.value = pickerYear.value
   monthMenuOpen.value = false
   if (changed) {
+    selectedCategory.value = null
     const key = selectedProcedureKey.value
     requestVersions[key] = (requestVersions[key] ?? 0) + 1
     states[key].rows = []
+    states[key].previousRows = []
     states[key].hasRun = false
     states[key].loading = false
     states[key].error = ''
+    states[key].comparisonError = ''
     columnFilters[key] = {}
     generalError.value = ''
   }
@@ -280,7 +343,9 @@ function displayDate(value: unknown): string {
 
 function createFilter(): BroadbandFilter | null {
   const month = String(monthNumber.value).padStart(2, '0')
-  const lastDay = String(new Date(yearNumber.value, monthNumber.value, 0).getDate()).padStart(2, '0')
+  const lastDay = String(isCurrentMonth.value
+    ? today.getDate()
+    : new Date(yearNumber.value, monthNumber.value, 0).getDate()).padStart(2, '0')
   return {
     fromDate: `${yearNumber.value}-${month}-01`,
     toDate: `${yearNumber.value}-${month}-${lastDay}`,
@@ -289,6 +354,20 @@ function createFilter(): BroadbandFilter | null {
     subscriberTypeId: 0,
     areaId: 0,
     ...(isPtmLevel.value ? { level: selectedLevel.value } : {}),
+  }
+}
+
+function previousMonthFilter(filter: BroadbandFilter): BroadbandFilter {
+  const [year, month] = filter.fromDate.split('-').map(Number)
+  const prior = new Date(year!, month! - 2, 1)
+  const priorMonth = String(prior.getMonth() + 1).padStart(2, '0')
+  const priorLastDay = new Date(prior.getFullYear(), prior.getMonth() + 1, 0).getDate()
+  const selectedIsCurrent = year === today.getFullYear() && month === today.getMonth() + 1
+  const day = selectedIsCurrent ? Math.min(Number(filter.toDate.slice(-2)), priorLastDay) : priorLastDay
+  return {
+    ...filter,
+    fromDate: `${prior.getFullYear()}-${priorMonth}-01`,
+    toDate: `${prior.getFullYear()}-${priorMonth}-${String(day).padStart(2, '0')}`,
   }
 }
 
@@ -312,6 +391,12 @@ function displayValue(value: unknown): string {
   if (typeof value === 'number') return new Intl.NumberFormat('vi-VN').format(value)
   if (typeof value === 'object') return JSON.stringify(value)
   return String(value)
+}
+
+function formatChange(change: number | null, current: number, previous: number): string {
+  if (change === null) return current > 0 && previous === 0 ? 'Mới phát sinh' : '0%'
+  const sign = change > 0 ? '+' : ''
+  return `${sign}${new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 1 }).format(change)}%`
 }
 
 function normalizeSearch(value: unknown): string {
@@ -378,12 +463,32 @@ async function runProcedure(definition: ProcedureDefinition, suppliedFilter?: Br
   requestVersions[definition.key] = requestVersion
   state.loading = true
   state.error = ''
+  state.comparisonError = ''
+  if (definition.key === 'ptm-level') {
+    selectedCategory.value = null
+    state.rows = []
+    state.previousRows = []
+    state.hasRun = false
+  }
   const startedAt = performance.now()
   try {
-    const result = await broadbandApi.execute(definition.key, filter)
-    if (requestVersions[definition.key] !== requestVersion) return
-    state.rows = result.rows
-    state.hasRun = true
+    if (definition.key === 'ptm-level') {
+      const [current, previous] = await Promise.allSettled([
+        broadbandApi.execute(definition.key, filter),
+        broadbandApi.execute(definition.key, previousMonthFilter(filter)),
+      ])
+      if (requestVersions[definition.key] !== requestVersion) return
+      if (current.status === 'rejected') throw current.reason
+      state.rows = current.value.rows
+      state.hasRun = true
+      if (previous.status === 'fulfilled') state.previousRows = previous.value.rows
+      else state.comparisonError = getAuthErrorMessage(previous.reason)
+    } else {
+      const result = await broadbandApi.execute(definition.key, filter)
+      if (requestVersions[definition.key] !== requestVersion) return
+      state.rows = result.rows
+      state.hasRun = true
+    }
   } catch (reason) {
     if (requestVersions[definition.key] !== requestVersion) return
     state.rows = []
@@ -514,13 +619,28 @@ onMounted(loadUnits)
       <v-card v-if="isPtmLevel && states['ptm-level'].hasRun && !states['ptm-level'].error" class="ptm-summary" elevation="0">
         <v-card-text>
           <div class="ptm-summary__head">
-            <div><strong>{{ reportTitle }}</strong><span>{{ monthLabel }}<template v-if="selectedLevel > 1 && selectedUnitId"> · {{ selectedUnitName }}</template></span></div>
+            <div><strong>{{ reportTitle }}</strong><span>{{ comparisonLabel }}<template v-if="selectedLevel > 1 && selectedUnitId"> · {{ selectedUnitName }}</template></span></div>
+            <v-chip v-if="selectedCategory" class="ptm-summary__selection" color="primary" variant="tonal" closable :title="selectedCategory" @click:close="selectedCategory = null">
+              {{ selectedCategory }}
+            </v-chip>
           </div>
+          <v-alert v-if="states['ptm-level'].comparisonError" type="warning" variant="tonal" density="compact" class="mt-3">
+            Chưa lấy được số liệu tháng trước: {{ states['ptm-level'].comparisonError }}
+          </v-alert>
           <div class="ptm-summary__metrics">
-            <div v-for="(metric, index) in ptmMetricTotals" :key="metric.name" class="ptm-summary__metric">
-              <span class="ptm-summary__dot" :style="{ background: chartMetricColor(index) }" />
+            <div v-for="metric in ptmMetricTotals" :key="metric.name" class="ptm-summary__metric">
+              <span class="ptm-summary__dot" :style="{ background: metric.color }" />
               <span>{{ metric.name }}</span>
               <strong>{{ displayValue(metric.value) }}</strong>
+              <div class="ptm-summary__compare">
+                <div class="ptm-summary__previous">
+                  <small>Kỳ trước</small>
+                  <strong>{{ states['ptm-level'].comparisonError ? '—' : displayValue(metric.previous) }}</strong>
+                </div>
+                <span v-if="!states['ptm-level'].comparisonError" class="ptm-summary__change" :class="{ 'ptm-summary__change--up': metric.change !== null && metric.change > 0, 'ptm-summary__change--down': metric.change !== null && metric.change < 0 }">
+                  {{ formatChange(metric.change, metric.value, metric.previous) }}
+                </span>
+              </div>
             </div>
           </div>
         </v-card-text>
@@ -597,6 +717,9 @@ onMounted(loadUnits)
                   :series="chartSeries"
                   orientation="vertical"
                   :loading="states[selectedProcedure.key].loading"
+                  :selectable="isPtmLevel"
+                  :selected-category="selectedCategory"
+                  @select-category="toggleCategory"
                 />
               </v-card-text>
             </v-card>
@@ -612,6 +735,9 @@ onMounted(loadUnits)
                   :series="chartSeries"
                   orientation="horizontal"
                   :loading="states[selectedProcedure.key].loading"
+                  :selectable="isPtmLevel"
+                  :selected-category="selectedCategory"
+                  @select-category="toggleCategory"
                 />
               </v-card-text>
             </v-card>
@@ -713,14 +839,24 @@ onMounted(loadUnits)
 .page-head { margin-bottom: 22px; }.page-head p { margin: 0 0 5px; color: rgb(var(--v-theme-primary)); font-size: 11px; font-weight: 800; letter-spacing: 1.3px; }.page-head h1 { margin: 0; color: rgb(var(--v-theme-on-background)); font-size: 29px; }.page-head span { display: block; margin-top: 6px; color: rgba(var(--v-theme-on-background), .62); font-size: 14px; }
 .filter-card,.procedure-card { overflow: hidden; border: 0; border-radius: 10px; background: rgb(var(--v-theme-surface)); box-shadow: 0 4px 18px rgba(29,61,83,.09)!important; }.filter-actions { display: flex; justify-content: flex-end; padding-top: 18px; }
 .ptm-summary { border: 0; border-radius: 10px; background: rgb(var(--v-theme-surface)); box-shadow: 0 4px 18px rgba(29,61,83,.09)!important; }
+.ptm-summary__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .ptm-summary__head strong,.ptm-summary__head span { display: block; }
 .ptm-summary__head strong { font-size: 18px; }
 .ptm-summary__head span { margin-top: 3px; color: rgba(var(--v-theme-on-surface),.62); font-size: 12px; }
-.ptm-summary__metrics { display: grid; grid-template-columns: repeat(auto-fit,minmax(145px,1fr)); gap: 10px; margin-top: 16px; }
+.ptm-summary__selection { max-width: min(100%, 370px); margin: 0!important; }
+.ptm-summary__selection :deep(.v-chip__content) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptm-summary__metrics { display: grid; grid-template-columns: repeat(auto-fit,minmax(180px,1fr)); gap: 10px; margin-top: 16px; }
 .ptm-summary__metric { display: grid; grid-template-columns: 10px 1fr; align-items: center; gap: 4px 8px; padding: 12px; border: 1px solid rgba(var(--v-border-color),.12); border-radius: 9px; background: color-mix(in srgb,rgb(var(--v-theme-primary)) 3%,rgb(var(--v-theme-surface))); }
-.ptm-summary__metric span:nth-child(2) { color: rgba(var(--v-theme-on-surface),.7); font-size: 12px; }
-.ptm-summary__metric strong { grid-column: 2; color: rgb(var(--v-theme-on-surface)); font-size: 20px; font-variant-numeric: tabular-nums; }
+.ptm-summary__metric > span:nth-child(2) { color: rgba(var(--v-theme-on-surface),.7); font-size: 12px; }
+.ptm-summary__metric > strong { grid-column: 2; color: rgb(var(--v-theme-on-surface)); font-size: 20px; font-variant-numeric: tabular-nums; }
 .ptm-summary__dot { width: 10px; height: 10px; border-radius: 3px; }
+.ptm-summary__compare { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 6px; min-height: 49px; margin-top: 8px; padding: 8px 9px; border-radius: 7px; background: color-mix(in srgb,rgb(var(--v-theme-primary)) 7%,rgb(var(--v-theme-surface))); }
+.ptm-summary__previous { display: grid; gap: 2px; min-width: 0; }
+.ptm-summary__previous small { color: rgba(var(--v-theme-on-surface),.7); font-size: 11px; font-weight: 600; }
+.ptm-summary__previous strong { overflow: hidden; color: rgb(var(--v-theme-primary)); font-size: 15px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.ptm-summary__change { color: rgba(var(--v-theme-on-surface),.8); font-size: 11px; font-weight: 700; white-space: nowrap; }
+.ptm-summary__change--up { color: rgb(var(--v-theme-success)); }
+.ptm-summary__change--down { color: rgb(var(--v-theme-error)); }
 .procedure-list { display: grid; gap: 18px; margin-top: 20px; }.procedure-card__head { min-height: 76px; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 15px 20px; border-bottom: 1px solid rgba(var(--v-border-color),var(--v-border-opacity)); white-space: normal; }.procedure-card__head strong,.procedure-card__head small { display: block; }.procedure-card__head strong { font-size: 17px; }.procedure-card__head small { margin-top: 5px; color: rgba(var(--v-theme-on-surface),.54); font-family: Consolas, monospace; font-size: 11px; }.procedure-card__status { display: flex; align-items: center; gap: 8px; }
 .procedure-table { --table-row-even: rgba(var(--v-theme-primary),.022); --table-row-hover: rgba(var(--v-theme-primary),.065); }
 .procedure-table :deep(.v-table__wrapper) { scrollbar-color: rgba(var(--v-theme-primary),.35) transparent; scrollbar-width: thin; }
