@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useTheme } from 'vuetify'
 import ZoomableKpiChart from '../components/charts/ZoomableKpiChart.vue'
 import SubscriberMovementDashboard from '../components/charts/SubscriberMovementDashboard.vue'
 import FiberDevelopmentDashboard from '../components/charts/FiberDevelopmentDashboard.vue'
@@ -8,6 +9,7 @@ import { getAuthErrorMessage } from '../api/auth.api'
 import type { KpiMaintenanceRow, KpiPscProcedure, KpiPscRow, KpiRow, KpiTrendProcedure, KpiTrendRow, KpiSubscriberMovementRow, KpiFiberDevelopmentRow } from '../types/kpi'
 import '../plugins/echarts'
 
+const theme = useTheme()
 const now = new Date()
 const monthNumber = ref(now.getMonth() + 1)
 const year = ref(now.getFullYear())
@@ -79,6 +81,13 @@ const totalActual = computed(() => rows.value.reduce((sum, row) => sum + (cumula
 const totalPlan = computed(() => rows.value.reduce((sum, row) => sum + (cumulativeMode.value ? row.cumulativePlan : row.monthlyPlan), 0))
 const completion = computed(() => totalPlan.value ? totalActual.value / totalPlan.value * 100 : null)
 function completionColor(value: number | null | undefined): string {
+  if (theme.global.current.value.dark) {
+    if (value == null || !Number.isFinite(value)) return '#b5c7d5'
+    if (value < 70) return '#f16e6b'
+    if (value <= 90) return '#e7b052'
+    if (value <= 100) return '#63c6f1'
+    return '#58ca97'
+  }
   if (value == null || !Number.isFinite(value)) return '#718397'
   if (value < 70) return '#c62828'
   if (value <= 90) return '#a66b00'
@@ -733,6 +742,7 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
           <div class="chart-filter-grid">
             <v-chip
               class="filter-chip"
+              :class="{ 'filter-chip--active': !selectedKpiNames.length }"
               :color="selectedKpiNames.length ? '#38566b' : '#087cba'"
               variant="flat"
               :style="selectedKpiNames.length ? { backgroundColor: '#e8eef3', color: '#38566b' } : undefined"
@@ -743,6 +753,7 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
               v-for="(row, index) in rows"
               :key="row.name"
               class="filter-chip"
+              :class="{ 'filter-chip--active': selectedKpiNames.includes(row.name) }"
               :color="selectedKpiNames.includes(row.name) ? '#087cba' : '#38566b'"
               variant="flat"
               :style="selectedKpiNames.includes(row.name) ? undefined : { backgroundColor: chipColors[index % chipColors.length], color: '#38566b' }"
@@ -1017,4 +1028,19 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
 .maintenance-metric-filters{display:flex;flex-wrap:wrap;gap:7px;padding:5px 21px 8px}.maintenance-metric-filters :deep(.v-chip){font-size:11px;font-weight:600}.maintenance-selection{display:flex;align-items:center}
 .maintenance-context{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:22px}.maintenance-context strong{display:flex;align-items:center;gap:7px;color:rgb(var(--v-theme-primary));font-size:15px}.maintenance-context span{display:block;margin-top:5px;color:rgba(var(--v-theme-on-surface),.58);font-size:12px}.maintenance-summary{border-top:3px solid #0c8b8d}.maintenance-summary strong{font-size:22px}.maintenance-summary p{margin:10px 0 4px;font-size:12px;line-height:1.5;color:#356b73}.maintenance-summary>span{font-size:11px;color:rgba(var(--v-theme-on-surface),.58);line-height:1.6}.maintenance-summary-loss{border-top-color:#cf873b}.maintenance-summary-loss strong{color:#b76b23}.maintenance-highlights{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:20px}.maintenance-highlights button{display:flex;align-items:center;gap:12px;padding:14px 18px;border:1px solid rgba(var(--v-theme-primary),.12);border-radius:10px;background:rgb(var(--v-theme-surface));text-align:left;color:#657b8b;font-size:12px}.maintenance-highlights button>span{flex:1}.maintenance-highlights strong{display:block;margin-top:4px;color:rgb(var(--v-theme-on-surface));font-size:14px}.maintenance-highlights button:hover,.maintenance-highlights button[aria-pressed=true]{border-color:rgb(var(--v-theme-primary));background:rgba(var(--v-theme-primary),.04)}.maintenance-highlights button:focus-visible{outline:2px solid rgb(var(--v-theme-primary));outline-offset:2px}.maintenance-overview-row .chart-sort-header{min-height:100px}.maintenance-chart-toolbar{display:flex;align-items:center;gap:12px;min-height:64px;padding:0 21px 12px}.maintenance-chart-toolbar :deep(.v-input){max-width:340px}.maintenance-rate-note{flex-wrap:wrap;align-content:center;color:#657b8b;font-size:11px}.maintenance-rate-note span{display:flex;align-items:center;gap:6px}.maintenance-rate-note i{display:inline-block;width:10px;height:10px;background:#cf873b;border-radius:2px}.maintenance-chart{height:440px}.maintenance-details :deep(.v-expansion-panel){border-radius:12px!important;border:1px solid rgba(var(--v-border-color),.12)}.maintenance-details :deep(.v-expansion-panel-title){font-size:14px;font-weight:600}.maintenance-detail-caption{margin-top:5px;color:#657b8b;font-size:12px}.maintenance-table-toolbar{padding:6px 21px 16px;overflow-x:auto}.maintenance-table-toolbar :deep(.v-btn){text-transform:none;letter-spacing:0}@media(max-width:700px){.maintenance-context{align-items:flex-start;flex-direction:column}.maintenance-highlights{grid-template-columns:1fr;gap:10px}.maintenance-overview-row .chart-sort-header{min-height:0}.maintenance-chart-toolbar{min-height:70px}.maintenance-details :deep(.v-expansion-panel-text__wrapper){padding:12px}.maintenance-summary strong{font-size:23px}}
 .snapshot-context{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:20px}.snapshot-context small{display:block;margin-top:5px;color:rgba(var(--v-theme-on-surface),.58);font-size:12px}.snapshot-period{display:flex;align-items:center;gap:6px;font-size:14px;color:rgb(var(--v-theme-primary))}.snapshot-summary{border-top:3px solid #0c8b8d}.snapshot-summary p{margin:10px 0 3px;font-size:12px;color:#236a6e;line-height:1.6}.snapshot-summary>span{color:rgba(var(--v-theme-on-surface),.58);font-size:11px}.snapshot-summary .snapshot-negative{color:#b75c27!important}.snapshot-summary strong{font-size:22px}.snapshot-chart-mode,.snapshot-chart-caption{display:flex;align-items:center;min-height:46px;padding:2px 21px 8px}.snapshot-chart-mode :deep(.v-btn){text-transform:none;letter-spacing:0;font-size:12px}.snapshot-chart-caption{font-size:12px;color:#526a7b}.snapshot-annual{margin-top:20px;padding:20px 24px;border-radius:12px;box-shadow:0 4px 18px rgba(29,61,83,.08)!important}.snapshot-annual-head{display:flex;align-items:center;justify-content:space-between;gap:16px}.snapshot-annual-head>div>strong{font-size:16px}.snapshot-annual-head span{display:block;margin-top:5px;font-size:12px;color:rgba(var(--v-theme-on-surface),.58)}.snapshot-annual-rate{font-size:25px;color:#0c8b8d}.snapshot-annual-track{position:relative;height:14px;margin:22px 0;background:rgba(var(--v-theme-primary),.08);border-radius:4px}.snapshot-annual-fill{height:100%;background:#0c8b8d;border-radius:4px}.snapshot-annual-target{position:absolute;top:-5px;width:3px;height:24px;background:#607587;transform:translateX(-100%)}.snapshot-annual-values{display:flex;flex-wrap:wrap;justify-content:space-between;gap:12px;font-size:12px}.snapshot-annual-values span{display:flex;align-items:center;gap:6px}.snapshot-annual-values i{display:inline-block;width:10px;height:10px;background:#0c8b8d;border-radius:2px}.snapshot-annual-values i.snapshot-legend-target{width:3px;height:13px;background:#607587}.snapshot-annual small{display:block;margin-top:14px;color:rgba(var(--v-theme-on-surface),.58);font-size:11px}.snapshot-annual-empty{margin:18px 0;color:#718397;font-size:13px}.snapshot-check{margin-top:16px;font-size:12px;line-height:1.7}.snapshot-table :deep(thead tr:nth-child(2) th:first-child){position:static;min-width:112px!important;box-shadow:none}.snapshot-table-month{border-radius:5px;padding:5px 7px;text-align:left}.snapshot-table-month:hover,.snapshot-table-month.is-selected{background:rgba(var(--v-theme-primary),.1);color:rgb(var(--v-theme-primary))}.snapshot-table-month:focus-visible{outline:2px solid rgb(var(--v-theme-primary));outline-offset:2px}@media(max-width:600px){.snapshot-context{align-items:flex-start;flex-direction:column}.snapshot-annual{padding:18px}.snapshot-annual-values{flex-direction:column}.snapshot-summary strong{font-size:23px}}
+:global(.v-theme--dashboardDark .kpi-page .filter-chip){background:#294056!important;color:#dcecf6!important}
+:global(.v-theme--dashboardDark .kpi-page .filter-chip--active){background:#167eaf!important;color:#fff!important}
+:global(.v-theme--dashboardDark .kpi-page .trend-chart-kpi small),
+:global(.v-theme--dashboardDark .kpi-page .snapshot-chart-caption),
+:global(.v-theme--dashboardDark .kpi-page .maintenance-detail-caption),
+:global(.v-theme--dashboardDark .kpi-page .maintenance-rate-note),
+:global(.v-theme--dashboardDark .kpi-page .snapshot-annual-empty){color:#b7c9d7}
+:global(.v-theme--dashboardDark .kpi-page .trend-chart-kpi strong),
+:global(.v-theme--dashboardDark .kpi-page .snapshot-annual-rate){color:#63c6f1}
+:global(.v-theme--dashboardDark .kpi-page .maintenance-summary p),
+:global(.v-theme--dashboardDark .kpi-page .snapshot-summary p),
+:global(.v-theme--dashboardDark .kpi-page .maintenance-highlights button){color:#b7d6dc}
+:global(.v-theme--dashboardDark .kpi-page .trend-chart-change.is-up){background:#173d39;color:#8ce1cb}
+:global(.v-theme--dashboardDark .kpi-page .trend-chart-change.is-down){background:#4a2e29;color:#ffb39a}
+:global(.v-theme--dashboardDark .kpi-page .trend-chart-change.is-neutral){background:#304152;color:#c8d8e4}
 </style>

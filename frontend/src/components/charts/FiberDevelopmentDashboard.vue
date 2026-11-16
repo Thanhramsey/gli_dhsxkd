@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import VChart from 'vue-echarts'
+import { useTheme } from 'vuetify'
 import ZoomableKpiChart from './ZoomableKpiChart.vue'
 import type { KpiFiberDevelopmentRow } from '../../types/kpi'
+import { adaptChartOptionForTheme } from '../../utils/chart-theme'
 import '../../plugins/echarts'
 
 const props = defineProps<{ rows: KpiFiberDevelopmentRow[]; month: string }>()
+const theme = useTheme()
 const indicators = [
   { code: 'DTPTM_FIBER', title: 'Doanh thu phát triển mới', money: true, prefix: 'revenue' },
   { code: 'SLPTM_FIBER', title: 'Thuê bao phát triển mới', money: false, prefix: 'subscribers' },
@@ -27,6 +30,13 @@ function money(value: number | null | undefined) {
 const display = (value: number | null | undefined, indicator: Indicator) => indicator.money ? money(value) : `${number(value)}${value == null ? '' : ' thuê bao'}`
 const percent = (value: number | null | undefined) => value == null ? '—' : `${nf.format(value)}%`
 function rateColor(value: number | null | undefined) {
+  if (theme.global.current.value.dark) {
+    if (value == null) return '#b5c7d5'
+    if (value < 70) return '#f16e6b'
+    if (value <= 90) return '#e7b052'
+    if (value <= 100) return '#63c6f1'
+    return '#58ca97'
+  }
   if (value == null) return '#718397'
   if (value < 70) return '#c62828'
   if (value <= 90) return '#a66b00'
@@ -163,7 +173,7 @@ const headers = [
           <div class="indicator-title">{{ item.title }}</div>
           <div class="province-values"><div><small>Thực hiện</small><strong>{{ display(item.actual, item) }}</strong></div><div><small>Hoàn thành</small><strong :style="{ color: rateColor(item.rate) }">{{ percent(item.rate) }}</strong></div></div>
           <div class="province-plan">Kế hoạch: <b>{{ display(item.plan, item) }}</b><span v-if="item.plan === 0"> · Chưa có kế hoạch để tính tỷ lệ</span></div>
-          <VChart v-if="item.plan != null || item.actual != null" class="province-chart" :option="summaryOption(item)" autoresize />
+          <VChart v-if="item.plan != null || item.actual != null" class="province-chart" :option="adaptChartOptionForTheme(summaryOption(item), theme.global.current.value.dark)" autoresize />
           <div v-else class="province-empty">Chưa có số liệu toàn tỉnh của chỉ tiêu này.</div>
         </v-card></v-col>
       </v-row>
@@ -196,6 +206,17 @@ const headers = [
 </template>
 
 <style scoped>
+:global(.v-theme--dashboardDark .fiber-development .section-heading small),
+:global(.v-theme--dashboardDark .fiber-development .province-values small),
+:global(.v-theme--dashboardDark .fiber-development .province-plan),
+:global(.v-theme--dashboardDark .fiber-development .province-empty),
+:global(.v-theme--dashboardDark .fiber-development .chart-heading small),
+:global(.v-theme--dashboardDark .fiber-development .rate-legend),
+:global(.v-theme--dashboardDark .fiber-development .table-heading small){color:#b8cad8}
+:global(.v-theme--dashboardDark .fiber-development .province-plan span){color:#e7b052}
+:global(.v-theme--dashboardDark .fiber-development .province-values strong){color:#63c6f1}
+:global(.v-theme--dashboardDark .fiber-development .unit-chart-card){border-color:#344858}
+:global(.v-theme--dashboardDark .fiber-development .group-count){background:#29465c;color:#8ed9f7}
 .rate-legend{display:flex;justify-content:center;flex-wrap:wrap;gap:5px 12px;padding:0 8px 6px;color:#526a7b;font-size:11px}.rate-legend span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}.rate-legend i{display:inline-block;width:11px;height:11px;border-radius:3px}.rate-legend__red{background:#c62828}.rate-legend__amber{background:#a66b00}.rate-legend__blue{background:#0067b1}.rate-legend__green{background:#218349}
 .fiber-development{margin-top:22px}.section-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px}.section-heading h2{font-size:18px}.section-heading small{display:block;color:#657b8b;margin-top:5px}.fiber-development :deep(.v-btn){text-transform:none;letter-spacing:0}.fiber-card{border-radius:12px;background:rgb(var(--v-theme-surface));box-shadow:0 4px 18px rgba(29,61,83,.08)!important}.province-card{padding:20px 22px;height:100%;border-top:3px solid #0067b1}.indicator-title{font-size:15px;font-weight:600}.province-values{display:flex;justify-content:space-between;gap:20px;margin-top:16px}.province-values small{color:#657b8b;font-size:12px}.province-values strong{display:block;margin-top:5px;font-size:24px;color:#0067b1}.province-plan{font-size:12px;color:#526a7b;margin-top:14px;line-height:1.6}.province-plan span{color:#a66b00}.province-chart{height:105px;margin-top:12px}.province-empty{padding:22px 0;color:#657b8b;font-size:13px}.unit-panel{margin-top:22px;overflow:hidden}.group-count{margin-left:7px;background:#e9f4fd;color:#0067b1;padding:1px 7px;border-radius:10px;font-size:11px}.unit-toolbar{display:flex;align-items:center;gap:16px;justify-content:space-between;padding:18px 20px}.unit-toolbar :deep(.v-text-field){max-width:330px}.unit-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;padding:0 16px 16px}.unit-chart-card{min-width:0;border:1px solid #e7eef4;border-radius:10px;padding:14px 8px 8px}.chart-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:0 8px;min-height:48px}.chart-heading strong{font-size:14px;line-height:1.5}.unit-chart-scroll{height:360px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin}.table-heading{padding:16px 22px}.table-heading strong{font-size:15px}.table-heading small{display:block;font-size:12px;color:#657b8b;margin-top:5px}.fiber-table :deep(table){border-collapse:separate;border-spacing:0}.fiber-table :deep(th){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 7%,rgb(var(--v-theme-surface)))!important;color:rgb(var(--v-theme-primary));font-size:12px;white-space:nowrap;min-width:110px}.fiber-table :deep(th:first-child){position:sticky;left:0;z-index:3;box-shadow:2px 0 4px #1d3d5314}.fiber-table :deep(thead tr:nth-child(2) th:first-child){position:static;box-shadow:none}.fiber-table :deep(td){white-space:nowrap;font-size:12px}.fiber-table :deep(td:first-child){position:sticky;left:0;z-index:2;background:rgb(var(--v-theme-surface));min-width:210px;font-weight:600;box-shadow:2px 0 4px #1d3d5314}.fiber-table :deep(tbody tr:nth-child(even)){background:rgba(var(--v-theme-primary),.025)}.fiber-table :deep(tbody tr:nth-child(even) td:first-child){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 2.5%,rgb(var(--v-theme-surface)))}@media(max-width:800px){.unit-charts{grid-template-columns:minmax(0,1fr)}.unit-toolbar,.section-heading{align-items:stretch;flex-direction:column}.unit-toolbar :deep(.v-text-field){max-width:none}.province-card{padding:18px}.province-values strong{font-size:21px}.unit-toolbar :deep(.v-btn){font-size:11px}}@media(max-width:420px){.province-values{gap:10px}.province-values strong{font-size:18px}}
 </style>

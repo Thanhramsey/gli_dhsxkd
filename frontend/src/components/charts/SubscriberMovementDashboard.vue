@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
+import { useTheme } from 'vuetify'
 import ZoomableKpiChart from './ZoomableKpiChart.vue'
 import type { KpiSubscriberMovementRow } from '../../types/kpi'
+import { adaptChartOptionForTheme } from '../../utils/chart-theme'
 import '../../plugins/echarts'
 
 const props = defineProps<{ rows: KpiSubscriberMovementRow[]; month: string }>()
+const theme = useTheme()
 const services = [
   { title: 'Tất cả dịch vụ', value: 'ALL' },
   { title: 'FiberVNN', value: 'FTTX' }, { title: 'MyTV', value: 'MYTV' },
@@ -48,7 +51,9 @@ const tableDetails = ref(false)
 const search = ref('')
 const nf = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 })
 const count = (value: number | null | undefined) => value == null ? '—' : nf.format(value)
-const netColor = (value: number | null | undefined) => value == null ? '#718397' : value < 0 ? '#c62828' : value > 0 ? '#0067b1' : '#526a7b'
+const netColor = (value: number | null | undefined) => theme.global.current.value.dark
+  ? value == null ? '#b5c7d5' : value < 0 ? '#f16e6b' : value > 0 ? '#63c6f1' : '#bbccda'
+  : value == null ? '#718397' : value < 0 ? '#c62828' : value > 0 ? '#0067b1' : '#526a7b'
 const serviceName = computed(() => selectedServices.value.includes('ALL') ? 'Tất cả dịch vụ' : activeServices.value.length <= 2 ? activeServices.value.map(item => item.title).join(' + ') : `${activeServices.value.length} dịch vụ`)
 const monthLabel = computed(() => `tháng ${Number(props.month.slice(5))}/${props.month.slice(0, 4)}`)
 // Excel exports may include presentation subtotals; never add them to their detail rows.
@@ -345,7 +350,7 @@ function drillSelected() {
         <div class="chart-heading"><div><strong>Cơ cấu theo dịch vụ</strong><small>{{ selectedGroup?.name ?? filterScope }} · {{ monthLabel }}</small></div></div>
         <v-btn-toggle v-model="serviceShareMetric" mandatory color="primary" variant="tonal" density="compact" class="chart-mode"><v-btn value="PT" size="small">Phát triển mới</v-btn><v-btn value="HUY" size="small">Hủy</v-btn></v-btn-toggle>
         <div class="share-total">Tổng: <strong>{{ count(serviceShareTotal) }}</strong> thuê bao</div>
-        <VChart v-if="serviceShareTotal != null && serviceShareTotal > 0" class="service-share-chart" :option="serviceShareOption" autoresize />
+        <VChart v-if="serviceShareTotal != null && serviceShareTotal > 0" class="service-share-chart" :option="adaptChartOptionForTheme(serviceShareOption, theme.global.current.value.dark)" autoresize />
         <div v-else class="service-share-empty">{{ serviceShareTotal == null ? 'Chưa đủ dữ liệu để tính tỷ trọng theo dịch vụ.' : 'Không có thuê bao trong phạm vi đang xem.' }}</div>
       </v-card>
       <v-card class="movement-card detail-card">
@@ -363,6 +368,18 @@ function drillSelected() {
 </template>
 
 <style scoped>
+:global(.v-theme--dashboardDark .movement-dashboard .service-chips .service-chip){background:#294056;color:#dcecf6;border-color:#41627a}
+:global(.v-theme--dashboardDark .movement-dashboard .service-chips .service-chip:hover){background:#35556d;border-color:#62a9cf}
+:global(.v-theme--dashboardDark .movement-dashboard .service-chips .service-chip.service-chip-selected){background:#167eaf;color:#fff;border-color:#4eb9e8}
+:global(.v-theme--dashboardDark .movement-dashboard .share-total),
+:global(.v-theme--dashboardDark .movement-dashboard .service-share-empty),
+:global(.v-theme--dashboardDark .movement-dashboard .filter-label),
+:global(.v-theme--dashboardDark .movement-dashboard .metric-card small),
+:global(.v-theme--dashboardDark .movement-dashboard .metric-card p),
+:global(.v-theme--dashboardDark .movement-dashboard .chart-heading small),
+:global(.v-theme--dashboardDark .movement-dashboard .unit-button small),
+:global(.v-theme--dashboardDark .movement-dashboard .movement-context small){color:#b8cad8}
+:global(.v-theme--dashboardDark .movement-dashboard .chart-scroll){scrollbar-color:#587f99 #263644}
 .service-chips .service-chip{background:#eef7ff;color:#175b8f;border:1px solid #cfe5f7;font-weight:500;transition:background-color .15s,border-color .15s}.service-chips .service-chip:hover{background:#dceeff;border-color:#8fc3eb}.service-chips .service-chip.service-chip-selected{background:#0067b1;color:#fff;border-color:#0067b1;box-shadow:0 2px 5px rgba(0,103,177,.16)}.service-chips .service-chip:focus-visible{outline:2px solid #0067b1;outline-offset:2px}
 .movement-details{display:grid;grid-template-columns:minmax(300px,1fr) minmax(0,2fr);gap:16px;margin-top:20px;align-items:start}.movement-details>.detail-card{margin-top:0;min-width:0}.service-share-card{padding:18px 14px 12px;min-width:0;overflow:hidden}.service-share-card .chart-mode{display:flex}.service-share-card .chart-mode :deep(.v-btn){flex:1}.share-total{text-align:center;margin:8px 0 0;font-size:12px;color:#526a7b}.service-share-chart{height:320px;width:100%}.service-share-empty{min-height:280px;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:#657b8b;font-size:13px}@media(max-width:1279px){.movement-details{grid-template-columns:minmax(0,1fr)}.service-share-chart{max-width:480px;margin:0 auto}}
 .chart-scroll{height:380px;overflow-y:auto;overflow-x:hidden;scrollbar-width:thin;scrollbar-color:#8fb5d1 #edf2f7}.chart-scroll:focus-visible{outline:2px solid rgb(var(--v-theme-primary));outline-offset:-2px}

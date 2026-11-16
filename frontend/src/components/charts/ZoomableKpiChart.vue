@@ -2,6 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import type { EChartsOption, Payload } from 'echarts'
 import VChart from 'vue-echarts'
+import { useTheme } from 'vuetify'
+import { adaptChartOptionForTheme } from '../../utils/chart-theme'
 
 const props = defineProps<{ option: Record<string, unknown>; axis: 'x' | 'y'; count: number; anchor?: 'center' | 'end' | 'start' }>()
 const emit = defineEmits<{
@@ -9,6 +11,7 @@ const emit = defineEmits<{
   legendselectchanged: [event: { name: string; selected: Record<string, boolean> }]
 }>()
 const chart = ref<InstanceType<typeof VChart> | null>(null)
+const theme = useTheme()
 const range = ref({ start: 0, end: 100 })
 const zoomAnchor = computed(() => {
   if (props.anchor) return props.anchor
@@ -20,7 +23,7 @@ const minWidth = computed(() => zoomAnchor.value === 'end' || zoomAnchor.value =
 const canZoomIn = computed(() => range.value.end - range.value.start > minWidth.value + 0.1)
 const canZoomOut = computed(() => range.value.start > 0.1 || range.value.end < 99.9)
 const chartOption = computed<EChartsOption>(() => ({
-  ...props.option,
+  ...adaptChartOptionForTheme(props.option, theme.global.current.value.dark),
   dataZoom: [{
     type: 'inside',
     ...(props.axis === 'x' ? { xAxisIndex: 0 } : { yAxisIndex: 0 }),
@@ -71,5 +74,5 @@ watch(() => [props.count, props.axis, zoomAnchor.value], () => { range.value = {
 </template>
 
 <style scoped>
-.zoom-chart{position:relative;width:100%}.chart-canvas{width:100%;height:100%}.zoom-controls{position:absolute;z-index:1;top:0;right:8px;display:flex;gap:2px;padding:2px;border:1px solid #e5edf3;border-radius:9px;background:rgba(255,255,255,.94);box-shadow:0 2px 8px rgba(29,61,83,.08)}
+.zoom-chart{position:relative;width:100%}.chart-canvas{width:100%;height:100%}.zoom-controls{position:absolute;z-index:1;top:0;right:8px;display:flex;gap:2px;padding:2px;border:1px solid rgba(var(--v-border-color),.25);border-radius:9px;background:rgb(var(--v-theme-surface));box-shadow:0 2px 8px rgba(0,0,0,.12)}
 </style>
