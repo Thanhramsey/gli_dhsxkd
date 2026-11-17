@@ -1,0 +1,8 @@
+Tôi mới tạo 1 menu  DL Giao Ban v2. 
+Hãy tạo 1 url mới rồi gán vào menu  ,
+
+Menu DL Giao Ban v2 này sẽ trình như GIAODIEN_FORM_PAGE_BCDHSXKD_GLI.docx
+
+Dữ liệu hiện sẽ lấy từ bảng TONGHOP_KPI_ALL. HIện đang có tạm 2 KPI "F1.FIBER_C3" và "F1.MYTV_C3"
+
+Sẽ view tạm 2 dữ liệu đó lên trước .

@@ -13,6 +13,18 @@ import { KpiService } from './kpi.service.js';
 export class KpiController {
   constructor(private readonly service: KpiService) {}
 
+  @Get('v2-months')
+  @ApiOperation({ summary: 'Các tháng có dữ liệu giao ban v2' })
+  v2Months() {
+    return this.service.v2Months();
+  }
+
+  @Post('v2-report')
+  @ApiOperation({ summary: 'Các KPI doanh thu cấp 3 từ TONGHOP_KPI_ALL theo tháng' })
+  v2Report(@Body() input: KpiQueryDto) {
+    return this.service.v2Report(input.month);
+  }
+
   @Get('latest-month')
   @ApiOperation({ summary: 'Tháng có dữ liệu KPI gần nhất' })
   latestMonth(@Query('procedure') procedure?: string) {

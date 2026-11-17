@@ -121,9 +121,74 @@ export interface KpiFiberPscRow {
   annualRevenuePlan: number | null;
 }
 
+export interface KpiV2Row {
+  kpi: string;
+  unitCode: string;
+  unitName: string;
+  chartName: string;
+  monthlyRevenue: number | null;
+  monthlyPlan: number | null;
+  cumulativeRevenue: number | null;
+  cumulativePlan: number | null;
+  annualPlan: number | null;
+  rank: number | null;
+}
+
 @Injectable()
 export class KpiService {
   constructor(private readonly oracleService: OracleService) {}
+
+  async v2Months(): Promise<{ months: string[] }> {
+    const rows = await this.oracleService.executeQuery<{ REPORT_MONTH: unknown }>(
+      `SELECT DISTINCT TRIM(THANG_DULIEU) AS REPORT_MONTH
+         FROM NBH_CDS_NEW.TONGHOP_KPI_ALL
+        WHERE REGEXP_LIKE(TRIM(KPI), '_C3$')
+          AND REGEXP_LIKE(TRIM(THANG_DULIEU), '^20[0-9]{4}$')
+          AND TRIM(THANG) = TRIM(THANG_DULIEU)
+        ORDER BY REPORT_MONTH DESC`,
+    );
+    return { months: rows.map(row => String(row.REPORT_MONTH).trim()) };
+  }
+
+  async v2Report(month: string): Promise<{ month: string; rows: KpiV2Row[] }> {
+    const snapshot = month.replace('-', '');
+    const rows = await this.oracleService.executeQuery<Record<string, unknown>>(
+      `SELECT KPI, MA_DV, TEN_DV, BIEUDO, DOANH_THU, KE_HOACH_THANG,
+              DOANH_THU_LK, KE_HOACH_LK_THANG, KE_HOACH_LK_NAM, XEP_HANG
+         FROM (
+           SELECT t.*, ROW_NUMBER() OVER (
+             PARTITION BY KPI, MA_DV ORDER BY KY_CUOC DESC
+           ) AS RN
+             FROM NBH_CDS_NEW.TONGHOP_KPI_ALL t
+            WHERE REGEXP_LIKE(TRIM(KPI), '_C3$')
+              AND TRIM(THANG_DULIEU) = :reportMonth
+              AND TRIM(THANG) = :reportMonth
+         )
+        WHERE RN = 1
+        ORDER BY KPI, MA_DV`,
+      { reportMonth: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: snapshot } },
+    );
+    const number = (value: unknown): number | null => {
+      if (value == null || String(value).trim() === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+      month,
+      rows: rows.map(row => ({
+        kpi: String(row.KPI).trim(),
+        unitCode: String(row.MA_DV ?? '').trim(),
+        unitName: String(row.TEN_DV ?? '').trim(),
+        chartName: String(row.BIEUDO ?? '').trim(),
+        monthlyRevenue: number(row.DOANH_THU),
+        monthlyPlan: number(row.KE_HOACH_THANG),
+        cumulativeRevenue: number(row.DOANH_THU_LK),
+        cumulativePlan: number(row.KE_HOACH_LK_THANG),
+        annualPlan: number(row.KE_HOACH_LK_NAM),
+        rank: number(row.XEP_HANG),
+      })),
+    };
+  }
 
   async fiberPsc(month: string): Promise<{ month: string; rows: KpiFiberPscRow[] }> {
     const result = await this.oracleService.executeProcedure(

@@ -1,8 +1,16 @@
 import { http } from './http'
 import type { ApiResponse } from '../types/api'
-import type { KpiMaintenance, KpiPsc, KpiPscProcedure, KpiSummary, KpiTrend, KpiTrendProcedure, KpiSubscriberMovement, KpiFiberDevelopment, KpiFiberPsc } from '../types/kpi'
+import type { KpiMaintenance, KpiPsc, KpiPscProcedure, KpiSummary, KpiTrend, KpiTrendProcedure, KpiSubscriberMovement, KpiFiberDevelopment, KpiFiberPsc, KpiV2Report } from '../types/kpi'
 
 export const kpiApi = {
+  async v2Months(): Promise<string[]> {
+    const response = await http.get<ApiResponse<{ months: string[] }>>('/kpi/v2-months')
+    return response.data.data.months
+  },
+  async v2Report(month: string): Promise<KpiV2Report> {
+    const response = await http.post<ApiResponse<KpiV2Report>>('/kpi/v2-report', { month }, { timeout: 120_000 })
+    return response.data.data
+  },
   async fiberPsc(month: string): Promise<KpiFiberPsc> {
     const response = await http.post<ApiResponse<KpiFiberPsc>>('/kpi/fiber-psc', { month }, { timeout: 120_000 })
     return response.data.data

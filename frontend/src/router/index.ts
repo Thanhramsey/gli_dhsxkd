@@ -50,6 +50,11 @@ export const router = createRouter({
       component: () => import('../views/KpiDashboardView.vue'),
     },
     {
+      path: '/dl-giao-ban-v2',
+      name: 'kpi-dashboard-v2',
+      component: () => import('../views/KpiDashboardV2View.vue'),
+    },
+    {
       path: '/bcpt-cntt',
       alias: ['/cntt'],
       name: 'bcpt-cntt',

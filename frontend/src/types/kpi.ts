@@ -49,6 +49,26 @@ export interface KpiFiberPsc {
   rows: KpiFiberPscRow[]
 }
 
+export type KpiV2Code = string
+
+export interface KpiV2Row {
+  kpi: KpiV2Code
+  unitCode: string
+  unitName: string
+  chartName: string
+  monthlyRevenue: number | null
+  monthlyPlan: number | null
+  cumulativeRevenue: number | null
+  cumulativePlan: number | null
+  annualPlan: number | null
+  rank: number | null
+}
+
+export interface KpiV2Report {
+  month: string
+  rows: KpiV2Row[]
+}
+
 export interface KpiSubscriberMovementRow {
   centerCode: string
   centerName: string

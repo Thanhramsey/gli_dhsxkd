@@ -2,6 +2,51 @@ import { describe, expect, it, vi } from 'vitest';
 import { OracleService } from '../../database/oracle.service.js';
 import { KpiService } from './kpi.service.js';
 
+describe('KpiService.v2Report', () => {
+  it('reads every C3 KPI, including a new code, and keeps zero plans distinct from missing data', async () => {
+    const executeQuery = vi.fn().mockResolvedValue([{
+      KPI: 'F1.FIBER_C3', MA_DV: '237', TEN_DV: 'GLI', BIEUDO: 'Tổng doanh thu Dịch vụ FIBER',
+      DOANH_THU: 33_000_000_000, KE_HOACH_THANG: 34_000_000_000,
+      DOANH_THU_LK: 320_000_000_000, KE_HOACH_LK_THANG: 327_000_000_000,
+      KE_HOACH_LK_NAM: 394_000_000_000, XEP_HANG: 0,
+    }, {
+      KPI: 'F1.DITT_C3', MA_DV: '237.301', TEN_DV: 'An Khê', BIEUDO: 'Tổng doanh thu Dịch vụ Internet trực tiếp',
+      DOANH_THU: 3_500_000, KE_HOACH_THANG: 0,
+      DOANH_THU_LK: 10_500_000, KE_HOACH_LK_THANG: 0,
+      KE_HOACH_LK_NAM: 0, XEP_HANG: 3,
+    }, {
+      KPI: 'F9.NEW_C3', MA_DV: '237', TEN_DV: 'GLI', BIEUDO: 'Tổng doanh thu dịch vụ mới',
+      DOANH_THU: 5_000_000, KE_HOACH_THANG: null,
+      DOANH_THU_LK: 20_000_000, KE_HOACH_LK_THANG: null,
+      KE_HOACH_LK_NAM: null, XEP_HANG: null,
+    }]);
+    const service = new KpiService({ executeQuery } as unknown as OracleService);
+
+    const result = await service.v2Report('2026-10');
+
+    expect(executeQuery).toHaveBeenCalledWith(
+      expect.stringMatching(/FROM NBH_CDS_NEW\.TONGHOP_KPI_ALL[\s\S]*REGEXP_LIKE\(TRIM\(KPI\), '_C3\$'\)/),
+      { reportMonth: expect.objectContaining({ val: '202610' }) },
+    );
+    expect(result).toEqual({ month: '2026-10', rows: [expect.objectContaining({
+      kpi: 'F1.FIBER_C3', unitCode: '237', monthlyRevenue: 33_000_000_000,
+      monthlyPlan: 34_000_000_000, annualPlan: 394_000_000_000,
+    }), expect.objectContaining({
+      kpi: 'F1.DITT_C3', unitCode: '237.301', monthlyRevenue: 3_500_000,
+      monthlyPlan: 0, cumulativePlan: 0,
+    }), expect.objectContaining({
+      kpi: 'F9.NEW_C3', chartName: 'Tổng doanh thu dịch vụ mới', monthlyPlan: null,
+    })] });
+  });
+
+  it('lists months for all C3 KPIs', async () => {
+    const executeQuery = vi.fn().mockResolvedValue([{ REPORT_MONTH: '202611' }]);
+    const service = new KpiService({ executeQuery } as unknown as OracleService);
+    expect(await service.v2Months()).toEqual({ months: ['202611'] });
+    expect(executeQuery).toHaveBeenCalledWith(expect.stringContaining("REGEXP_LIKE(TRIM(KPI), '_C3$')"));
+  });
+});
+
 describe('KpiService.fiberPsc', () => {
   it('binds the selected month and maps the pivot columns without mixing province and unit rows', async () => {
     const executeProcedure = vi.fn().mockResolvedValue({ outBinds: { RSOUT: [
