@@ -1,6 +1,6 @@
 import { http } from './http'
 import type { ApiResponse } from '../types/api'
-import type { KpiMaintenance, KpiPsc, KpiPscProcedure, KpiSummary, KpiTrend, KpiTrendProcedure, KpiSubscriberMovement, KpiFiberDevelopment, KpiFiberPsc, KpiV2Report } from '../types/kpi'
+import type { KpiMaintenance, KpiPsc, KpiPscProcedure, KpiSummary, KpiTrend, KpiTrendProcedure, KpiSubscriberMovement, KpiFiberDevelopment, KpiFiberPsc, KpiV2Report, KpiV2UnitTrend } from '../types/kpi'
 
 export const kpiApi = {
   async v2Months(): Promise<string[]> {
@@ -9,6 +9,10 @@ export const kpiApi = {
   },
   async v2Report(month: string): Promise<KpiV2Report> {
     const response = await http.post<ApiResponse<KpiV2Report>>('/kpi/v2-report', { month }, { timeout: 120_000 })
+    return response.data.data
+  },
+  async v2UnitTrend(month: string, kpi: string, unitCode: string): Promise<KpiV2UnitTrend> {
+    const response = await http.post<ApiResponse<KpiV2UnitTrend>>('/kpi/v2-unit-trend', { month, kpi, unitCode }, { timeout: 120_000 })
     return response.data.data
   },
   async fiberPsc(month: string): Promise<KpiFiberPsc> {

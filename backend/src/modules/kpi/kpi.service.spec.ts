@@ -47,6 +47,33 @@ describe('KpiService.v2Report', () => {
   });
 });
 
+describe('KpiService.v2UnitTrend', () => {
+  it('binds KPI, unit and months, and keeps missing months empty', async () => {
+    const executeQuery = vi.fn().mockResolvedValue([
+      { REPORT_MONTH: '202601', DOANH_THU: 1_000_000, KE_HOACH_THANG: 2_000_000, DOANH_THU_LK: 1_000_000, KE_HOACH_LK_THANG: 2_000_000, KE_HOACH_LK_NAM: 24_000_000 },
+      { REPORT_MONTH: '202603', DOANH_THU: 3_000_000, KE_HOACH_THANG: 0, DOANH_THU_LK: 4_000_000, KE_HOACH_LK_THANG: 6_000_000, KE_HOACH_LK_NAM: 24_000_000 },
+    ]);
+    const service = new KpiService({ executeQuery } as unknown as OracleService);
+
+    const result = await service.v2UnitTrend({ month: '2026-03', kpi: 'F1.FIBER_C3', unitCode: '237.301' });
+
+    expect(executeQuery).toHaveBeenCalledWith(
+      expect.stringMatching(/ROW_NUMBER\(\)[\s\S]*THANG_DULIEU[\s\S]*FROM NBH_CDS_NEW\.TONGHOP_KPI_ALL/),
+      expect.objectContaining({
+        kpi: expect.objectContaining({ val: 'F1.FIBER_C3' }),
+        unitCode: expect.objectContaining({ val: '237.301' }),
+        firstMonth: expect.objectContaining({ val: '202601' }),
+        reportMonth: expect.objectContaining({ val: '202603' }),
+      }),
+    );
+    expect(result.rows).toEqual([
+      expect.objectContaining({ month: '2026-01', monthlyRevenue: 1_000_000 }),
+      expect.objectContaining({ month: '2026-02', monthlyRevenue: null, monthlyPlan: null }),
+      expect.objectContaining({ month: '2026-03', monthlyRevenue: 3_000_000, monthlyPlan: 0 }),
+    ]);
+  });
+});
+
 describe('KpiService.fiberPsc', () => {
   it('binds the selected month and maps the pivot columns without mixing province and unit rows', async () => {
     const executeProcedure = vi.fn().mockResolvedValue({ outBinds: { RSOUT: [

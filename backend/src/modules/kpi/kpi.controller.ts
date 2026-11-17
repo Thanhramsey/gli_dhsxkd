@@ -4,6 +4,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { KpiQueryDto } from './kpi-query.dto.js';
 import { KpiPscQueryDto } from './kpi-psc-query.dto.js';
 import { KpiTrendQueryDto } from './kpi-trend-query.dto.js';
+import { KpiV2TrendQueryDto } from './kpi-v2-trend-query.dto.js';
 import { KpiService } from './kpi.service.js';
 
 @ApiTags('kpi')
@@ -23,6 +24,12 @@ export class KpiController {
   @ApiOperation({ summary: 'Các KPI doanh thu cấp 3 từ TONGHOP_KPI_ALL theo tháng' })
   v2Report(@Body() input: KpiQueryDto) {
     return this.service.v2Report(input.month);
+  }
+
+  @Post('v2-unit-trend')
+  @ApiOperation({ summary: 'Doanh thu KPI của một địa bàn từ tháng 1 đến tháng báo cáo' })
+  v2UnitTrend(@Body() input: KpiV2TrendQueryDto) {
+    return this.service.v2UnitTrend(input);
   }
 
   @Get('latest-month')

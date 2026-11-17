@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import VChart from 'vue-echarts'
 import { useTheme } from 'vuetify'
 import { kpiApi } from '../api/kpi.api'
 import { getAuthErrorMessage } from '../api/auth.api'
-import type { KpiV2Code, KpiV2Row } from '../types/kpi'
+import type { KpiV2Code, KpiV2Row, KpiV2TrendRow } from '../types/kpi'
 import { adaptChartOptionForTheme } from '../utils/chart-theme'
 import '../plugins/echarts'
 
@@ -30,6 +30,11 @@ const scope = ref<'province' | 'unit'>('province')
 const unitCode = ref<string | null>(null)
 const selectedKpi = ref<KpiV2Code>('')
 const unitPeriod = ref<UnitPeriod>('monthly')
+const trendRows = ref<KpiV2TrendRow[]>([])
+const trendLoading = ref(false)
+const trendError = ref('')
+const trendRefresh = ref(0)
+let trendVersion = 0
 const loading = ref(false)
 const loaded = ref(false)
 const error = ref('')
@@ -63,6 +68,7 @@ const unitRows = computed(() => rows.value.filter(row => row.unitCode !== provin
 const unitOptions = computed(() => [...new Map(unitRows.value.map(row => [row.unitCode, { title: row.unitName, value: row.unitCode }])).values()].sort((a, b) => a.title.localeCompare(b.title, 'vi')))
 const visibleUnits = computed(() => unitOptions.value.filter(unit => !unitCode.value || unit.value === unitCode.value))
 const visibleUnitRows = computed(() => unitRows.value.filter(row => !unitCode.value || row.unitCode === unitCode.value))
+const selectedUnitName = computed(() => unitOptions.value.find(unit => unit.value === unitCode.value)?.title ?? unitCode.value ?? '')
 const selectedRows = computed(() => visibleUnitRows.value.filter(row => row.kpi === selectedKpi.value).sort((a, b) =>
   (a.rank && b.rank ? a.rank - b.rank : 0) || a.unitName.localeCompare(b.unitName, 'vi')))
 const rankedUnitCodes = computed(() => unitRows.value.filter(row => row.kpi === selectedKpi.value)
@@ -75,6 +81,15 @@ const unitPeriodFields = computed<{ actual: AmountKey; plan: AmountKey; label: s
 })
 const unitActual = (row: KpiV2Row) => row[unitPeriodFields.value.actual]
 const unitPlan = (row: KpiV2Row) => row[unitPeriodFields.value.plan]
+const trendActual = (row: KpiV2TrendRow) => row[unitPeriodFields.value.actual]
+const trendPlan = (row: KpiV2TrendRow) => row[unitPeriodFields.value.plan]
+const hasTrendData = computed(() => trendRows.value.some(row => trendActual(row) != null))
+const chartScale = computed(() => {
+  const source = unitCode.value ? trendRows.value : selectedRows.value
+  const largest = Math.max(0, ...source.flatMap(row => [row[unitPeriodFields.value.actual] ?? 0, row[unitPeriodFields.value.plan] ?? 0]))
+  return largest >= 1_000_000_000 ? { divisor: 1_000_000_000, label: 'tỷ đồng' } : { divisor: 1_000_000, label: 'triệu đồng' }
+})
+const chartMoney = (value: number | null) => value == null ? '—' : `${nf.format(value / chartScale.value.divisor)} ${chartScale.value.label}`
 function unitRankStyle(row: KpiV2Row): 'top' | 'bottom' | 'good' | 'warning' | 'neutral' {
   const position = rankedUnitCodes.value.indexOf(row.unitCode)
   if (position >= 0 && position < 3) return 'top'
@@ -104,6 +119,28 @@ const provinceTotal = computed(() => {
     cumulativeRate: rate(cumulativeRevenue, cumulativePlan),
     annualRate: rate(cumulativeRevenue, annualPlan) }
 })
+const provinceShares = computed(() => kpis.value.flatMap(kpi => {
+  const value = provinceRows.value.find(row => row.kpi === kpi.code)?.monthlyRevenue
+  return value == null ? [] : [{ ...kpi, value }]
+}).sort((a, b) => b.value - a.value))
+const sharePercent = (value: number) => percent(provinceTotal.value.monthlyRevenue && provinceTotal.value.monthlyRevenue > 0
+  ? value / provinceTotal.value.monthlyRevenue * 100 : null)
+const unitDetailRows = computed(() => kpis.value.map(kpi => ({
+  ...kpi,
+  row: visibleUnitRows.value.find(row => row.kpi === kpi.code),
+})))
+const unitDetailTotal = computed(() => {
+  const source = visibleUnitRows.value
+  const monthlyRevenue = sum(source, 'monthlyRevenue')
+  const monthlyPlan = sum(source, 'monthlyPlan')
+  const cumulativeRevenue = sum(source, 'cumulativeRevenue')
+  const cumulativePlan = sum(source, 'cumulativePlan')
+  const annualPlan = sum(source, 'annualPlan')
+  return { monthlyRevenue, monthlyPlan, cumulativeRevenue, cumulativePlan, annualPlan,
+    monthlyRate: rate(monthlyRevenue, monthlyPlan),
+    cumulativeRate: rate(cumulativeRevenue, cumulativePlan),
+    annualRate: rate(cumulativeRevenue, annualPlan) }
+})
 
 function rateColor(value: number | null): string {
   if (value == null) return theme.global.current.value.dark ? '#b8cbd8' : '#728599'
@@ -113,15 +150,12 @@ function rateColor(value: number | null): string {
 }
 
 const shareOption = computed(() => adaptChartOptionForTheme({
-  tooltip: { trigger: 'item', formatter: ({ name, value, percent: share }: { name: string; value: number; percent: number }) => `${name}<br/>${billions(value)} · ${nf.format(share)}%` },
-  legend: { type: 'scroll', bottom: 2, selectedMode: false },
-  series: [{ type: 'pie', radius: ['38%', '68%'], center: ['50%', '45%'],
+  tooltip: { trigger: 'item', formatter: ({ name, value, percent: share }: { name: string; value: number; percent: number }) => `${name}<br/>${money(value)} triệu đồng · ${nf.format(share)}%` },
+  legend: { show: false },
+  series: [{ type: 'pie', radius: ['53%', '78%'], center: ['50%', '50%'],
     itemStyle: { borderRadius: 5, borderWidth: 3, borderColor: theme.global.current.value.dark ? '#1a2937' : '#fff' },
-    label: { formatter: '{d}%', fontSize: 13 },
-    data: kpis.value.flatMap(kpi => {
-      const value = provinceRows.value.find(row => row.kpi === kpi.code)?.monthlyRevenue
-      return value == null ? [] : [{ name: kpi.label, value, itemStyle: { color: kpi.color } }]
-    }),
+    label: { show: false },
+    data: provinceShares.value.map(item => ({ name: item.label, value: item.value, itemStyle: { color: item.color } })),
   }],
 }, theme.global.current.value.dark))
 
@@ -149,7 +183,7 @@ const unitChartOption = computed(() => {
   return adaptChartOptionForTheme({
     tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (items: Array<{ dataIndex: number }>) => {
       const row = source[items[0]?.dataIndex ?? -1]
-      return row ? `${row.unitName}<br/>${unitPeriodFields.value.planLabel}: ${billions(unitPlan(row))}<br/>${unitPeriodFields.value.label}: ${billions(unitActual(row))}<br/>Hoàn thành: ${percent(rate(unitActual(row), unitPlan(row)))}${row.rank ? `<br/>Xếp hạng: ${whole.format(row.rank)}` : ''}` : ''
+      return row ? `${row.unitName}<br/>${unitPeriodFields.value.planLabel}: ${chartMoney(unitPlan(row))}<br/>${unitPeriodFields.value.label}: ${chartMoney(unitActual(row))}<br/>Hoàn thành: ${percent(rate(unitActual(row), unitPlan(row)))}${row.rank ? `<br/>Xếp hạng: ${whole.format(row.rank)}` : ''}` : ''
     } },
     legend: { show: false },
     grid: { left: 54, right: 36, top: 22, bottom: 115 },
@@ -173,7 +207,7 @@ const unitChartOption = computed(() => {
         return `{unit|${value.replace(/[{}|]/g, '')}}\n{${status}|${percent(completion)}}${row?.rank ? `\n{${rankStatus}|Hạng ${whole.format(row.rank)}}` : ''}`
       } },
     },
-    yAxis: { type: 'value', name: 'tỷ đồng', axisLabel: { formatter: (value: number) => nf.format(value / 1_000_000_000) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+    yAxis: { type: 'value', name: chartScale.value.label, axisLabel: { formatter: (value: number) => nf.format(value / chartScale.value.divisor) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
     series: [
       { name: 'Thực hiện', type: 'bar', barMaxWidth: 42, data: source.map(row => {
         return { value: unitActual(row), itemStyle: { color: unitRankColor(row), borderRadius: [4, 4, 0, 0] } }
@@ -183,10 +217,55 @@ const unitChartOption = computed(() => {
   }, theme.global.current.value.dark)
 })
 
+const unitTrendOption = computed(() => {
+  const source = trendRows.value
+  return adaptChartOptionForTheme({
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: (items: Array<{ dataIndex: number }>) => {
+      const row = source[items[0]?.dataIndex ?? -1]
+      return row ? `Tháng ${Number(row.month.slice(5))}/${row.month.slice(0, 4)}<br/>${unitPeriodFields.value.label}: ${chartMoney(trendActual(row))}<br/>${unitPeriodFields.value.planLabel}: ${chartMoney(trendPlan(row))}<br/>Hoàn thành: ${percent(rate(trendActual(row), trendPlan(row)))}` : ''
+    } },
+    grid: { left: 66, right: 35, top: 30, bottom: 65 },
+    xAxis: { type: 'category', data: source.map(row => `Tháng ${Number(row.month.slice(5))}`), axisTick: { alignWithLabel: true }, axisLabel: { interval: 0, fontWeight: 600 } },
+    yAxis: { type: 'value', name: chartScale.value.label, axisLabel: { formatter: (value: number) => nf.format(value / chartScale.value.divisor) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
+    series: [
+      { name: unitPeriodFields.value.label, type: 'bar', barMaxWidth: 48, data: source.map(row => {
+        const completion = rate(trendActual(row), trendPlan(row))
+        return { value: trendActual(row), itemStyle: { color: completion == null ? noPlanColor : completion >= 100 ? achievedColor : unmetColor, borderRadius: [5, 5, 0, 0] } }
+      }) },
+      { name: unitPeriodFields.value.planLabel, type: 'line', symbol: 'circle', symbolSize: 8, lineStyle: { width: 2, color: planColor }, itemStyle: { color: planColor }, data: source.map(row => trendPlan(row)) },
+    ],
+  }, theme.global.current.value.dark)
+})
+
 function selectChartUnit(event: { dataIndex?: number }) {
   const item = selectedRows.value[event.dataIndex ?? -1]
   if (item) unitCode.value = unitCode.value === item.unitCode ? null : item.unitCode
 }
+
+async function selectKpiFromTable(code: KpiV2Code) {
+  selectedKpi.value = code
+  await nextTick()
+  document.getElementById('v2-unit-chart')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+watch([scope, unitCode, selectedKpi, month, trendRefresh], async () => {
+  const version = ++trendVersion
+  trendRows.value = []
+  trendError.value = ''
+  if (scope.value !== 'unit' || !unitCode.value || !selectedKpi.value || !month.value) {
+    trendLoading.value = false
+    return
+  }
+  trendLoading.value = true
+  try {
+    const result = await kpiApi.v2UnitTrend(month.value, selectedKpi.value, unitCode.value)
+    if (version === trendVersion) trendRows.value = result.rows
+  } catch (cause) {
+    if (version === trendVersion) trendError.value = getAuthErrorMessage(cause)
+  } finally {
+    if (version === trendVersion) trendLoading.value = false
+  }
+})
 
 watch(monthMenuOpen, open => {
   if (!open || !month.value) return
@@ -220,6 +299,7 @@ async function load() {
     rows.value = result.rows
     loaded.value = true
     if (unitCode.value && !result.rows.some(row => row.unitCode === unitCode.value)) unitCode.value = null
+    else if (unitCode.value) trendRefresh.value += 1
   } catch (cause) {
     if (version !== loadVersion) return
     error.value = getAuthErrorMessage(cause)
@@ -265,7 +345,17 @@ onMounted(async () => {
         <v-alert v-if="missingProvinceKpis.length" class="mx-5 mb-4" type="warning" variant="tonal" density="compact">API chưa trả dữ liệu {{ missingProvinceKpis.map(kpi => kpi.label).join(', ') }} cho {{ monthLabel }}. Các biểu đồ và dòng tổng chỉ tính trên KPI đã nhận được.</v-alert>
         <template v-if="scope === 'province'">
           <div class="province-charts">
-            <v-card class="chart-card" elevation="0"><h2>Tỷ trọng doanh thu {{ monthLabel }}</h2><VChart class="pie-chart" :option="shareOption" autoresize /></v-card>
+            <v-card class="chart-card share-card" elevation="0">
+              <h2>Tỷ trọng doanh thu {{ monthLabel }}</h2>
+              <div class="pie-visual"><VChart class="pie-chart" :option="shareOption" autoresize /><div class="pie-center"><span>Tổng doanh thu</span><strong>{{ billions(provinceTotal.monthlyRevenue) }}</strong></div></div>
+              <div class="share-list" aria-label="Cơ cấu doanh thu theo dịch vụ">
+                <div v-for="item in provinceShares" :key="item.code" class="share-entry">
+                  <i class="share-swatch" :style="{ backgroundColor: item.color }" />
+                  <span class="share-name">{{ item.label }}<small>{{ money(item.value) }} triệu đồng</small></span>
+                  <strong class="share-percent">{{ sharePercent(item.value) }}</strong>
+                </div>
+              </div>
+            </v-card>
             <v-card class="chart-card" elevation="0"><h2>Tiến độ doanh thu năm {{ month.slice(0, 4) }}</h2><p>Thực hiện lũy kế so với kế hoạch năm · {{ kpis.length }} chỉ tiêu</p><VChart class="progress-chart" :style="{ height: `${Math.max(305, kpis.length * 55 + 90)}px` }" :option="annualProgressOption" autoresize /></v-card>
           </div>
           <section class="report-section">
@@ -282,10 +372,47 @@ onMounted(async () => {
             <v-select v-model="selectedKpi" :items="kpis.map(kpi => ({ title: `${kpi.code} - ${kpi.title}`, value: kpi.code }))" label="Chọn chỉ tiêu KPI" variant="outlined" density="comfortable" hide-details />
             <div class="unit-period"><span>Kỳ so sánh</span><v-btn-toggle v-model="unitPeriod" class="unit-period-toggle" mandatory color="primary" density="comfortable" variant="text"><v-btn value="monthly">Trong tháng</v-btn><v-btn value="cumulative">Lũy kế</v-btn><v-btn value="annual">Kế hoạch năm</v-btn></v-btn-toggle></div>
           </div>
-          <v-card class="unit-chart-card" elevation="0"><h2>Tỷ lệ hoàn thành: {{ kpis.find(kpi => kpi.code === selectedKpi)?.title }}</h2><p>{{ monthLabel }} · {{ unitPeriodFields.label }} so với {{ unitPeriodFields.planLabel.toLowerCase() }} · {{ selectedRows.length }}/{{ unitOptions.length }} địa bàn có số liệu</p><template v-if="selectedRows.length"><div class="unit-legend" aria-label="Chú thích biểu đồ"><span><i class="legend-bar" :style="{ backgroundColor: topColor }" />Top 3</span><span><i class="legend-bar" :style="{ backgroundColor: achievedColor }" />Đạt kế hoạch</span><span><i class="legend-bar" :style="{ backgroundColor: middleColor }" />Chưa đạt kế hoạch</span><span><i class="legend-bar" :style="{ backgroundColor: unmetColor }" />3 hạng cuối</span><span><i class="legend-bar" :style="{ backgroundColor: noPlanColor }" />Chưa có kế hoạch</span><span><i class="legend-line" :style="{ borderColor: planColor, color: planColor }" />{{ unitPeriodFields.planLabel }}</span></div><div class="unit-chart-scroll"><VChart class="unit-chart" :style="{ minWidth: `${Math.max(880, selectedRows.length * 105)}px` }" :option="unitChartOption" autoresize @click="selectChartUnit" /></div></template><v-alert v-else class="ma-4" type="info" variant="tonal">API chưa trả dữ liệu {{ kpis.find(kpi => kpi.code === selectedKpi)?.label }} cho địa bàn đã chọn.</v-alert></v-card>
-          <section class="report-section"><div class="section-heading"><h2>1. BÁO CÁO DOANH THU ĐỊA BÀN CẤP 2</h2><small>{{ monthLabel }} · {{ unitPeriodFields.label }} / {{ unitPeriodFields.planLabel }} · triệu đồng</small></div>
-            <v-table class="report-table unit-table" density="compact" :style="{ '--unit-table-width': `${425 + visibleUnits.length * 164}px` }"><colgroup><col style="width:50px" /><col style="width:115px" /><col style="width:260px" /><col v-for="unit in visibleUnits" :key="unit.value" style="width:164px" /></colgroup><thead><tr><th>STT</th><th>Mã KPI</th><th>Tên KPI</th><th v-for="unit in visibleUnits" :key="unit.value">{{ unit.title.replace(/^Trung tâm Viễn thông\s*/i, '') }}</th></tr></thead><tbody>
-              <tr v-for="(kpi, index) in kpis" :key="kpi.code" :class="{ 'selected-kpi-row': kpi.code === selectedKpi }"><td>{{ index + 1 }}</td><td>{{ kpi.code }}</td><td>{{ kpi.title }}</td><td v-for="unit in visibleUnits" :key="unit.value"><template v-if="visibleUnitRows.find(row => row.unitCode === unit.value && row.kpi === kpi.code)" v-for="row in visibleUnitRows.filter(item => item.unitCode === unit.value && item.kpi === kpi.code)" :key="row.unitCode"><div class="unit-amount">{{ money(unitActual(row)) }}</div><div class="unit-plan">KH {{ money(unitPlan(row)) }} <span :style="{ color: rateColor(rate(unitActual(row), unitPlan(row))) }">· {{ percent(rate(unitActual(row), unitPlan(row))) }}</span></div></template><template v-else>—</template></td></tr>
+          <v-card id="v2-unit-chart" class="unit-chart-card" elevation="0">
+            <h2>{{ unitCode ? 'Diễn biến doanh thu' : 'Tỷ lệ hoàn thành' }}: {{ kpis.find(kpi => kpi.code === selectedKpi)?.title }}</h2>
+            <p v-if="unitCode">{{ selectedUnitName }} · tháng 1–{{ Number(month.slice(5)) }}/{{ month.slice(0, 4) }} · {{ unitPeriodFields.label }} so với {{ unitPeriodFields.planLabel.toLowerCase() }}</p>
+            <p v-else>{{ monthLabel }} · {{ unitPeriodFields.label }} so với {{ unitPeriodFields.planLabel.toLowerCase() }} · {{ selectedRows.length }}/{{ unitOptions.length }} địa bàn có số liệu</p>
+            <template v-if="unitCode">
+              <v-progress-linear v-if="trendLoading" class="mt-5" indeterminate color="primary" />
+              <v-alert v-else-if="trendError" class="ma-4" type="error" variant="tonal">{{ trendError }}</v-alert>
+              <template v-else-if="hasTrendData">
+                <div class="unit-legend" aria-label="Chú thích biểu đồ"><span><i class="legend-bar" :style="{ backgroundColor: achievedColor }" />Đạt kế hoạch</span><span><i class="legend-bar" :style="{ backgroundColor: unmetColor }" />Chưa đạt kế hoạch</span><span><i class="legend-bar" :style="{ backgroundColor: noPlanColor }" />Chưa có kế hoạch</span><span><i class="legend-line" :style="{ borderColor: planColor, color: planColor }" />{{ unitPeriodFields.planLabel }}</span></div>
+                <div class="unit-chart-scroll"><VChart class="unit-chart" :style="{ minWidth: `${Math.max(880, trendRows.length * 90)}px` }" :option="unitTrendOption" autoresize /></div>
+              </template>
+              <v-alert v-else class="ma-4" type="info" variant="tonal">Chưa có số liệu {{ kpis.find(kpi => kpi.code === selectedKpi)?.label }} của {{ selectedUnitName }} từ tháng 1 đến {{ monthLabel }}.</v-alert>
+            </template>
+            <template v-else-if="selectedRows.length">
+              <div class="unit-legend" aria-label="Chú thích biểu đồ"><span><i class="legend-bar" :style="{ backgroundColor: topColor }" />Top 3</span><span><i class="legend-bar" :style="{ backgroundColor: achievedColor }" />Đạt kế hoạch</span><span><i class="legend-bar" :style="{ backgroundColor: middleColor }" />Chưa đạt kế hoạch</span><span><i class="legend-bar" :style="{ backgroundColor: unmetColor }" />3 hạng cuối</span><span><i class="legend-bar" :style="{ backgroundColor: noPlanColor }" />Chưa có kế hoạch</span><span><i class="legend-line" :style="{ borderColor: planColor, color: planColor }" />{{ unitPeriodFields.planLabel }}</span></div>
+              <div class="unit-chart-scroll"><VChart class="unit-chart" :style="{ minWidth: `${Math.max(880, selectedRows.length * 105)}px` }" :option="unitChartOption" autoresize @click="selectChartUnit" /></div>
+            </template>
+            <v-alert v-else class="ma-4" type="info" variant="tonal">API chưa trả dữ liệu {{ kpis.find(kpi => kpi.code === selectedKpi)?.label }} cho địa bàn đã chọn.</v-alert>
+          </v-card>
+          <section class="report-section"><div class="section-heading"><h2>1. BÁO CÁO DOANH THU ĐỊA BÀN CẤP 2</h2><small>{{ monthLabel }} · {{ unitCode ? selectedUnitName : `${unitPeriodFields.label} / ${unitPeriodFields.planLabel}` }} · triệu đồng</small></div>
+            <v-table v-if="unitCode" class="report-table unit-detail-table" density="compact">
+              <colgroup><col style="width:50px" /><col style="width:115px" /><col style="width:220px" /><col v-for="n in 9" :key="n" style="width:120px" /></colgroup>
+              <thead>
+                <tr><th rowspan="2">STT</th><th rowspan="2">Mã KPI</th><th rowspan="2">Tên KPI</th><th colspan="3">Trong tháng</th><th colspan="3">Lũy kế đến tháng báo cáo</th><th colspan="3">So với kế hoạch năm</th></tr>
+                <tr><th>KH tháng</th><th>TH tháng</th><th>Hoàn thành</th><th>KH lũy kế</th><th>TH lũy kế</th><th>Hoàn thành</th><th>KH năm</th><th>TH lũy kế</th><th>Hoàn thành</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, index) in unitDetailRows" :key="item.code" class="kpi-selectable-row" :class="{ 'selected-kpi-row': item.code === selectedKpi }" tabindex="0" :aria-selected="item.code === selectedKpi" :aria-label="`Xem biểu đồ ${item.title}`" @click="selectKpiFromTable(item.code)" @keydown.enter.prevent="selectKpiFromTable(item.code)" @keydown.space.prevent="selectKpiFromTable(item.code)">
+                  <td>{{ index + 1 }}</td><td>{{ item.code }}</td><td>{{ item.title }}</td>
+                  <td>{{ money(item.row?.monthlyPlan) }}</td><td>{{ money(item.row?.monthlyRevenue) }}</td>
+                  <td :style="{ color: rateColor(rate(item.row?.monthlyRevenue ?? null, item.row?.monthlyPlan ?? null)) }">{{ percent(rate(item.row?.monthlyRevenue ?? null, item.row?.monthlyPlan ?? null)) }}</td>
+                  <td>{{ money(item.row?.cumulativePlan) }}</td><td>{{ money(item.row?.cumulativeRevenue) }}</td>
+                  <td :style="{ color: rateColor(rate(item.row?.cumulativeRevenue ?? null, item.row?.cumulativePlan ?? null)) }">{{ percent(rate(item.row?.cumulativeRevenue ?? null, item.row?.cumulativePlan ?? null)) }}</td>
+                  <td>{{ money(item.row?.annualPlan) }}</td><td>{{ money(item.row?.cumulativeRevenue) }}</td>
+                  <td :style="{ color: rateColor(rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null)) }">{{ percent(rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null)) }}</td>
+                </tr>
+                <tr class="total-row"><td colspan="3">Tổng</td><td>{{ money(unitDetailTotal.monthlyPlan) }}</td><td>{{ money(unitDetailTotal.monthlyRevenue) }}</td><td>{{ percent(unitDetailTotal.monthlyRate) }}</td><td>{{ money(unitDetailTotal.cumulativePlan) }}</td><td>{{ money(unitDetailTotal.cumulativeRevenue) }}</td><td>{{ percent(unitDetailTotal.cumulativeRate) }}</td><td>{{ money(unitDetailTotal.annualPlan) }}</td><td>{{ money(unitDetailTotal.cumulativeRevenue) }}</td><td>{{ percent(unitDetailTotal.annualRate) }}</td></tr>
+              </tbody>
+            </v-table>
+            <v-table v-else class="report-table unit-table" density="compact" :style="{ '--unit-table-width': `${425 + visibleUnits.length * 164}px` }"><colgroup><col style="width:50px" /><col style="width:115px" /><col style="width:260px" /><col v-for="unit in visibleUnits" :key="unit.value" style="width:164px" /></colgroup><thead><tr><th>STT</th><th>Mã KPI</th><th>Tên KPI</th><th v-for="unit in visibleUnits" :key="unit.value">{{ unit.title.replace(/^Trung tâm Viễn thông\s*/i, '') }}</th></tr></thead><tbody>
+              <tr v-for="(kpi, index) in kpis" :key="kpi.code" class="kpi-selectable-row" :class="{ 'selected-kpi-row': kpi.code === selectedKpi }" tabindex="0" :aria-selected="kpi.code === selectedKpi" :aria-label="`Xem biểu đồ ${kpi.title}`" @click="selectKpiFromTable(kpi.code)" @keydown.enter.prevent="selectKpiFromTable(kpi.code)" @keydown.space.prevent="selectKpiFromTable(kpi.code)"><td>{{ index + 1 }}</td><td>{{ kpi.code }}</td><td>{{ kpi.title }}</td><td v-for="unit in visibleUnits" :key="unit.value"><template v-if="visibleUnitRows.find(row => row.unitCode === unit.value && row.kpi === kpi.code)" v-for="row in visibleUnitRows.filter(item => item.unitCode === unit.value && item.kpi === kpi.code)" :key="row.unitCode"><div class="unit-amount">{{ money(unitActual(row)) }}</div><div class="unit-plan">KH {{ money(unitPlan(row)) }} <span :style="{ color: rateColor(rate(unitActual(row), unitPlan(row))) }">· {{ percent(rate(unitActual(row), unitPlan(row))) }}</span></div></template><template v-else>—</template></td></tr>
               <tr class="total-row"><td colspan="3">Tổng</td><td v-for="unit in visibleUnits" :key="unit.value"><div class="unit-amount">{{ money(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.actual)) }}</div><div class="unit-plan">KH {{ money(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.plan)) }} · {{ percent(rate(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.actual), sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.plan))) }}</div></td></tr>
             </tbody></v-table>
           </section>
@@ -317,7 +444,41 @@ onMounted(async () => {
 .unit-table :deep(tbody tr.selected-kpi-row td){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 17%,rgb(var(--v-theme-surface)))!important;border-top:1px solid color-mix(in srgb,rgb(var(--v-theme-primary)) 36%,transparent);border-bottom:1px solid color-mix(in srgb,rgb(var(--v-theme-primary)) 36%,transparent)}
 .unit-table :deep(tbody tr.selected-kpi-row td:first-child){box-shadow:inset 4px 0 rgb(var(--v-theme-primary))}
 .unit-table :deep(tbody tr.selected-kpi-row td:nth-child(2)),.unit-table :deep(tbody tr.selected-kpi-row td:nth-child(3)){color:rgb(var(--v-theme-primary));font-weight:800}
+.unit-detail-table :deep(.v-table__wrapper){overflow-x:auto}
+.unit-detail-table :deep(table){width:100%;min-width:1465px;table-layout:fixed}
+.unit-detail-table :deep(thead tr:first-child th:nth-child(-n+3)){position:sticky;z-index:4;background:#086fb7!important}
+.unit-detail-table :deep(thead tr:first-child th:nth-child(1)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(1)){left:0}
+.unit-detail-table :deep(thead tr:first-child th:nth-child(2)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(2)){left:50px}
+.unit-detail-table :deep(thead tr:first-child th:nth-child(3)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(3)){left:165px;box-shadow:3px 0 6px rgba(25,50,70,.12)}
+.unit-detail-table :deep(thead tr:nth-child(2) th){background:#147bbd!important}
+.unit-detail-table :deep(thead tr:first-child th:nth-child(n+4)),.unit-detail-table :deep(thead tr:nth-child(2) th:nth-child(3n+1)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(3n+4)){border-left:2px solid rgba(var(--v-theme-primary),.2)}
+.unit-detail-table :deep(tbody tr.total-row td:nth-child(3n+2)){border-left:2px solid rgba(var(--v-theme-primary),.2)}
+.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(-n+3)){position:sticky;z-index:2;background:rgb(var(--v-theme-surface))}
+.unit-detail-table :deep(tbody tr:nth-child(even):not(.selected-kpi-row):not(.total-row)){background:transparent!important}
+.unit-detail-table :deep(tbody tr.total-row td){background:color-mix(in srgb,rgb(var(--v-theme-on-surface)) 7%,rgb(var(--v-theme-surface)))!important}
+.unit-detail-table :deep(tbody tr.total-row td:first-child){position:sticky;left:0;z-index:3;box-shadow:3px 0 6px rgba(25,50,70,.12)}
+.unit-detail-table :deep(tbody tr.selected-kpi-row td){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 17%,rgb(var(--v-theme-surface)))!important;border-top:1px solid color-mix(in srgb,rgb(var(--v-theme-primary)) 36%,transparent);border-bottom:1px solid color-mix(in srgb,rgb(var(--v-theme-primary)) 36%,transparent)}
+.unit-detail-table :deep(tbody tr.selected-kpi-row td:first-child){box-shadow:inset 4px 0 rgb(var(--v-theme-primary))}
+.unit-detail-table :deep(tbody tr.selected-kpi-row td:nth-child(2)),.unit-detail-table :deep(tbody tr.selected-kpi-row td:nth-child(3)){color:rgb(var(--v-theme-primary));font-weight:800}
+.unit-chart-card{scroll-margin-top:76px}
+.unit-table :deep(tbody tr.kpi-selectable-row),.unit-detail-table :deep(tbody tr.kpi-selectable-row){cursor:pointer}
+.unit-table :deep(tbody tr.kpi-selectable-row:not(.selected-kpi-row):hover td),.unit-detail-table :deep(tbody tr.kpi-selectable-row:not(.selected-kpi-row):hover td){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 7%,rgb(var(--v-theme-surface)))!important}
+.unit-table :deep(tbody tr.kpi-selectable-row:focus-visible),.unit-detail-table :deep(tbody tr.kpi-selectable-row:focus-visible){outline:2px solid rgb(var(--v-theme-primary));outline-offset:-2px}
 .province-charts .chart-card{min-height:365px}
 .pie-chart,.progress-chart{height:305px}
+.province-charts{align-items:stretch}
+.share-card{min-height:0!important;padding-bottom:14px}
+.pie-visual{position:relative;height:285px;margin:4px 0 8px}
+.share-card .pie-chart{height:285px}
+.pie-center{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:4px;width:120px;max-width:40%;text-align:center;pointer-events:none}
+.pie-center span{font-size:11px;color:rgb(var(--v-theme-on-surface));opacity:.62}
+.pie-center strong{font-size:16px;line-height:1.25;color:rgb(var(--v-theme-on-surface))}
+.share-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px 12px}
+.share-entry{display:grid;grid-template-columns:10px minmax(0,1fr) auto;align-items:center;gap:7px;min-height:48px;padding:5px 3px;border-bottom:1px solid rgba(var(--v-border-color),.17)}
+.share-swatch{width:11px;height:11px;border-radius:3px}
+.share-name{min-width:0;font-size:12px;font-weight:700;line-height:1.3;color:rgb(var(--v-theme-on-surface))}
+.share-name small{display:block;margin-top:2px;font-size:11px;font-weight:400;opacity:.68}
+.share-percent{font-size:12px;color:rgb(var(--v-theme-on-surface));font-variant-numeric:tabular-nums}
+@media(max-width:540px){.share-list{grid-template-columns:1fr}.pie-visual,.share-card .pie-chart{height:250px}}
 .unit-controls{display:flex;align-items:center;gap:22px;flex-wrap:wrap;padding:2px 20px 18px}.unit-controls :deep(.v-input){flex:1 1 340px;max-width:520px}.unit-period{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.unit-period>span{font-size:12px;font-weight:700;color:rgb(var(--v-theme-on-surface));opacity:.7;white-space:nowrap}.unit-period-toggle{display:flex;align-items:center;gap:4px;height:auto;padding:4px;border:1px solid rgba(var(--v-border-color),.22);border-radius:11px;background:color-mix(in srgb,rgb(var(--v-theme-primary)) 5%,rgb(var(--v-theme-surface)));box-shadow:none}.unit-period-toggle :deep(.v-btn){height:36px!important;min-width:0;padding:0 15px;border-radius:8px!important;font-size:12px;font-weight:650;letter-spacing:0;text-transform:none}.unit-period-toggle :deep(.v-btn--active){background:rgb(var(--v-theme-primary));color:rgb(var(--v-theme-on-primary))!important;box-shadow:0 2px 7px rgba(0,87,150,.2)}.unit-period-toggle :deep(.v-btn--active .v-btn__overlay){opacity:0}.unit-amount{font-weight:700;font-variant-numeric:tabular-nums}.unit-plan{margin-top:3px;font-size:11px;font-weight:500;opacity:.82;font-variant-numeric:tabular-nums}.unit-plan span{font-weight:700;opacity:1}@media(max-width:650px){.unit-controls{padding-inline:12px;gap:12px}.unit-controls :deep(.v-input){flex-basis:100%}.unit-period{width:100%;justify-content:space-between}.unit-period-toggle :deep(.v-btn){padding-inline:9px;font-size:11px}}
 </style>

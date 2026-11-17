@@ -69,6 +69,22 @@ export interface KpiV2Report {
   rows: KpiV2Row[]
 }
 
+export interface KpiV2TrendRow {
+  month: string
+  monthlyRevenue: number | null
+  monthlyPlan: number | null
+  cumulativeRevenue: number | null
+  cumulativePlan: number | null
+  annualPlan: number | null
+}
+
+export interface KpiV2UnitTrend {
+  month: string
+  kpi: string
+  unitCode: string
+  rows: KpiV2TrendRow[]
+}
+
 export interface KpiSubscriberMovementRow {
   centerCode: string
   centerName: string

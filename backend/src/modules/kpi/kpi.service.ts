@@ -134,6 +134,15 @@ export interface KpiV2Row {
   rank: number | null;
 }
 
+export interface KpiV2TrendRow {
+  month: string;
+  monthlyRevenue: number | null;
+  monthlyPlan: number | null;
+  cumulativeRevenue: number | null;
+  cumulativePlan: number | null;
+  annualPlan: number | null;
+}
+
 @Injectable()
 export class KpiService {
   constructor(private readonly oracleService: OracleService) {}
@@ -187,6 +196,59 @@ export class KpiService {
         annualPlan: number(row.KE_HOACH_LK_NAM),
         rank: number(row.XEP_HANG),
       })),
+    };
+  }
+
+  async v2UnitTrend(input: { month: string; kpi: string; unitCode: string }): Promise<{ month: string; kpi: string; unitCode: string; rows: KpiV2TrendRow[] }> {
+    const reportMonth = input.month.replace('-', '');
+    const firstMonth = `${reportMonth.slice(0, 4)}01`;
+    const result = await this.oracleService.executeQuery<Record<string, unknown>>(
+      `SELECT REPORT_MONTH, DOANH_THU, KE_HOACH_THANG, DOANH_THU_LK,
+              KE_HOACH_LK_THANG, KE_HOACH_LK_NAM
+         FROM (
+           SELECT TRIM(THANG) AS REPORT_MONTH, DOANH_THU, KE_HOACH_THANG,
+                  DOANH_THU_LK, KE_HOACH_LK_THANG, KE_HOACH_LK_NAM,
+                  ROW_NUMBER() OVER (
+                    PARTITION BY TRIM(THANG)
+                    ORDER BY TRIM(THANG_DULIEU) DESC, KY_CUOC DESC
+                  ) AS RN
+             FROM NBH_CDS_NEW.TONGHOP_KPI_ALL
+            WHERE TRIM(KPI) = :kpi
+              AND TRIM(MA_DV) = :unitCode
+              AND TRIM(THANG) BETWEEN :firstMonth AND :reportMonth
+              AND TRIM(THANG_DULIEU) BETWEEN TRIM(THANG) AND :reportMonth
+         )
+        WHERE RN = 1
+        ORDER BY REPORT_MONTH`,
+      {
+        kpi: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: input.kpi },
+        unitCode: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: input.unitCode },
+        firstMonth: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: firstMonth },
+        reportMonth: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: reportMonth },
+      },
+    );
+    const number = (value: unknown): number | null => {
+      if (value == null || String(value).trim() === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    const byMonth = new Map(result.map(row => [String(row.REPORT_MONTH).trim(), row]));
+    return {
+      month: input.month,
+      kpi: input.kpi,
+      unitCode: input.unitCode,
+      rows: Array.from({ length: Number(reportMonth.slice(4)) }, (_, index) => {
+        const month = `${reportMonth.slice(0, 4)}-${String(index + 1).padStart(2, '0')}`;
+        const row = byMonth.get(month.replace('-', ''));
+        return {
+          month,
+          monthlyRevenue: number(row?.DOANH_THU),
+          monthlyPlan: number(row?.KE_HOACH_THANG),
+          cumulativeRevenue: number(row?.DOANH_THU_LK),
+          cumulativePlan: number(row?.KE_HOACH_LK_THANG),
+          annualPlan: number(row?.KE_HOACH_LK_NAM),
+        };
+      }),
     };
   }
 
