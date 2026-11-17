@@ -1,0 +1,28 @@
+CREATE OR REPLACE PACKAGE BODY NBH_CDS_NEW.BCGIAOBAN_GLI is
+
+  --- NHÓM CHỈ TIÊU DOANH THU PSC 
+PROCEDURE SP_VIEW_PSC_FIBER( P_MONTH VARCHAR2, RSOUT OUT SYS_REFCURSOR) AS
+  BEGIN
+  OPEN RSOUT FOR
+          SELECT  NHOM_DVI, MA_DV, TEN_DV, PSC_THUCHIEN_THANG AS TBPSC_THANG, TT_THUCHIEN_THANG AS TBPSCTT_THANG, DT_THUCHIEN_THANG, DT_THUCHIEN_LK, DT_KE_HOACH_THANG, DT_KE_HOACH_THANG_LK, DT_KE_HOACH_NAM
+FROM 
+(SELECT * 
+ FROM 
+ (SELECT  dm.ma_kpi , TH.nhom_dvi, c2.ma_dv, c2.ten_dv,P_MONTH AS thang, ROUND(NVL(kh.ke_hoach_thang,0),0) AS ke_hoach_thang, ROUND(NVL(kh.ke_hoach_lk_thang,0),0) AS ke_hoach_thang_lk 
+                     ,NVL(kh.ke_hoach_nam,0) AS ke_hoach_nam, NVL(th.thuchien_thang, 0) AS thuchien_thang, NVL(th.thuchien_lk,0) AS thuchien_lk
+              FROM (select distinct TO_CHAR(DIABAN_ID) AS MA_DV, TEN_DIABAN AS ten_dv, nhom_dvi from v_donvi_diaban where  nhom_dvi IN ('TTVT')
+                            UNION ALL 
+                            select distinct MA_DV, TEN_DV, nhom_dvi from v_donvi_diaban where  nhom_dvi IN ('TOANTINH')         ) C2 
+              LEFT JOIN  gli_dm_chitieugb dm ON 1=1
+              LEFT JOIN gli_kh_chitieugb kh ON kh.ma_Dv = c2.ma_dv AND kh.thang =P_MONTH  AND kh.ma_kpi = dm.ma_kpi
+              LEFT JOIN gli_th_chitieugb th ON th.ma_dv = c2.ma_dv AND th.thang=P_MONTH AND th.ma_kpi = dm.ma_kpi 
+              WHERE dm.ma_kpi IN ('SLPSC_FIBER' ,'DT_FIBER' , 'SLPSCTT_FIBER')
+              )
+PIVOT( SUM(THUCHIEN_THANG) AS THUCHIEN_THANG ,  SUM(THUCHIEN_LK) AS THUCHIEN_LK
+       , SUM(KE_HOACH_THANG) AS KE_HOACH_THANG , SUM(KE_HOACH_THANG_LK)  AS KE_HOACH_THANG_LK
+       , SUM(KE_HOACH_NAM) AS KE_HOACH_NAM
+      FOR MA_KPI IN ('SLPSC_FIBER' AS "PSC",'DT_FIBER' AS "DT", 'SLPSCTT_FIBER' AS "TT"))
+  ) PS      
+ORDER BY ten_DV;
+  END;
+end BCGIAOBAN_GLI;

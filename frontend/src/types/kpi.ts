@@ -31,6 +31,24 @@ export interface KpiFiberDevelopment {
   rows: KpiFiberDevelopmentRow[]
 }
 
+export interface KpiFiberPscRow {
+  unitGroup: string
+  unitCode: string
+  unitName: string
+  monthlyPscSubscribers: number | null
+  monthlyNetPscSubscribers: number | null
+  monthlyRevenue: number | null
+  cumulativeRevenue: number | null
+  monthlyRevenuePlan: number | null
+  cumulativeRevenuePlan: number | null
+  annualRevenuePlan: number | null
+}
+
+export interface KpiFiberPsc {
+  month: string
+  rows: KpiFiberPscRow[]
+}
+
 export interface KpiSubscriberMovementRow {
   centerCode: string
   centerName: string

@@ -54,4 +54,10 @@ export class KpiController {
   fiberDevelopment(@Body() input: KpiQueryDto) {
     return this.service.fiberDevelopment(input.month);
   }
+
+  @Post('fiber-psc')
+  @ApiOperation({ summary: 'Phát sinh cước và doanh thu Fiber theo đơn vị' })
+  fiberPsc(@Body() input: KpiQueryDto) {
+    return this.service.fiberPsc(input.month);
+  }
 }

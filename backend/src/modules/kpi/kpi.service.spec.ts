@@ -2,6 +2,36 @@ import { describe, expect, it, vi } from 'vitest';
 import { OracleService } from '../../database/oracle.service.js';
 import { KpiService } from './kpi.service.js';
 
+describe('KpiService.fiberPsc', () => {
+  it('binds the selected month and maps the pivot columns without mixing province and unit rows', async () => {
+    const executeProcedure = vi.fn().mockResolvedValue({ outBinds: { RSOUT: [
+      { NHOM_DVI: null, MA_DV: '237', TEN_DV: 'Viễn thông Gia Lai', TBPSC_THANG: 120, TBPSCTT_THANG: 90,
+        DT_THUCHIEN_THANG: 250000000, DT_THUCHIEN_LK: 1000000000, DT_KE_HOACH_THANG: 300000000,
+        DT_KE_HOACH_THANG_LK: 1200000000, DT_KE_HOACH_NAM: 3600000000 },
+      { NHOM_DVI: 'DB_CHUNG', MA_DV: '1', TEN_DV: 'An Khê', TBPSC_THANG: 20, TBPSCTT_THANG: null,
+        DT_THUCHIEN_THANG: 50000000, DT_THUCHIEN_LK: 200000000, DT_KE_HOACH_THANG: 0,
+        DT_KE_HOACH_THANG_LK: 220000000, DT_KE_HOACH_NAM: 700000000 },
+    ] } });
+    const executeQuery = vi.fn().mockResolvedValue([
+      { MA_DV: '237', NHOM_DVI: 'TOANTINH' },
+      { MA_DV: '1', NHOM_DVI: 'TTVT' },
+    ]);
+    const service = new KpiService({ executeProcedure, executeQuery } as unknown as OracleService);
+
+    const result = await service.fiberPsc('2026-11');
+
+    expect(executeProcedure).toHaveBeenCalledWith('NBH_CDS_NEW.BCGIAOBAN_GLI', 'SP_VIEW_PSC_FIBER', expect.objectContaining({
+      P_MONTH: expect.objectContaining({ val: '202611' }),
+      RSOUT: expect.objectContaining({ dir: expect.any(Number) }),
+    }));
+    expect(result.rows).toEqual([
+      expect.objectContaining({ unitGroup: 'TOANTINH', unitCode: '237', monthlyPscSubscribers: 120, monthlyNetPscSubscribers: 90, monthlyRevenue: 250000000, annualRevenuePlan: 3600000000 }),
+      expect.objectContaining({ unitGroup: 'TTVT', unitCode: '1', monthlyNetPscSubscribers: null, monthlyRevenuePlan: 0 }),
+    ]);
+    expect(executeQuery).toHaveBeenCalledWith(expect.stringContaining('FROM v_donvi_diaban'));
+  });
+});
+
 describe('KpiService.trend', () => {
   it('maps the procedure pivot into monthly rows from January to the selected month', async () => {
     const executeProcedure = vi.fn().mockResolvedValue({

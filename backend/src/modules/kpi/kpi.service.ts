@@ -108,9 +108,69 @@ export interface KpiPscRow {
   cumulativeStopRate: number | null;
 }
 
+export interface KpiFiberPscRow {
+  unitGroup: string;
+  unitCode: string;
+  unitName: string;
+  monthlyPscSubscribers: number | null;
+  monthlyNetPscSubscribers: number | null;
+  monthlyRevenue: number | null;
+  cumulativeRevenue: number | null;
+  monthlyRevenuePlan: number | null;
+  cumulativeRevenuePlan: number | null;
+  annualRevenuePlan: number | null;
+}
+
 @Injectable()
 export class KpiService {
   constructor(private readonly oracleService: OracleService) {}
+
+  async fiberPsc(month: string): Promise<{ month: string; rows: KpiFiberPscRow[] }> {
+    const result = await this.oracleService.executeProcedure(
+      'NBH_CDS_NEW.BCGIAOBAN_GLI',
+      'SP_VIEW_PSC_FIBER',
+      {
+        P_MONTH: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: month.replace('-', '') },
+        RSOUT: { dir: oracledb.BIND_OUT, type: oracledb.CURSOR },
+      },
+    );
+    const rawRows = result.outBinds?.RSOUT;
+    // The current procedure selects TH.NHOM_DVI, which can be DB_CHUNG or NULL.
+    // Resolve the group from the same unit source used to build its result set.
+    const unitGroups = new Map<string, string>();
+    if (Array.isArray(rawRows) && rawRows.length) {
+      const groupRows = await this.oracleService.executeQuery<{ MA_DV: unknown; NHOM_DVI: unknown }>(
+        `SELECT DISTINCT TO_CHAR(DIABAN_ID) AS MA_DV, NHOM_DVI
+           FROM v_donvi_diaban WHERE NHOM_DVI = 'TTVT'
+         UNION
+         SELECT DISTINCT MA_DV, NHOM_DVI
+           FROM v_donvi_diaban WHERE NHOM_DVI = 'TOANTINH'`,
+      );
+      for (const row of groupRows) {
+        unitGroups.set(String(row.MA_DV ?? '').trim(), String(row.NHOM_DVI ?? '').trim().toUpperCase());
+      }
+    }
+    const number = (value: unknown): number | null => {
+      if (value == null || String(value).trim() === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+      month,
+      rows: Array.isArray(rawRows) ? rawRows.map((row: Record<string, unknown>) => ({
+        unitGroup: unitGroups.get(String(row.MA_DV ?? '').trim()) ?? String(row.NHOM_DVI ?? '').trim().toUpperCase(),
+        unitCode: String(row.MA_DV ?? '').trim(),
+        unitName: String(row.TEN_DV ?? '').trim(),
+        monthlyPscSubscribers: number(row.TBPSC_THANG),
+        monthlyNetPscSubscribers: number(row.TBPSCTT_THANG),
+        monthlyRevenue: number(row.DT_THUCHIEN_THANG),
+        cumulativeRevenue: number(row.DT_THUCHIEN_LK),
+        monthlyRevenuePlan: number(row.DT_KE_HOACH_THANG),
+        cumulativeRevenuePlan: number(row.DT_KE_HOACH_THANG_LK),
+        annualRevenuePlan: number(row.DT_KE_HOACH_NAM),
+      })) : [],
+    };
+  }
 
   async fiberDevelopment(month: string) {
     const result = await this.oracleService.executeProcedure(
