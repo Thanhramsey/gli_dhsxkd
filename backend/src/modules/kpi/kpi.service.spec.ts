@@ -74,6 +74,30 @@ describe('KpiService.v2UnitTrend', () => {
   });
 });
 
+describe('KpiService.v2SubscriberReport', () => {
+  it('binds the report month and maps PTM/HUY counts without replacing missing values with zero', async () => {
+    const executeQuery = vi.fn().mockResolvedValue([{
+      KPI: 'FIBER_PTM_C3', MA_DV: '237', TEN_DV: 'GLI', DICH_VU: 'FIBER', CHI_TIEU: 'PTM',
+      NAM_TRUOC: 2025, NAM_NAY: 2026, SL_NAM_TRUOC: 1357, SL_NAM_NAY: 1405, TANG_GIAM: 48,
+    }, {
+      KPI: 'MESH_TL_C3', MA_DV: '237', TEN_DV: 'GLI', DICH_VU: 'MESH', CHI_TIEU: 'HUY',
+      NAM_TRUOC: 2025, NAM_NAY: 2026, SL_NAM_TRUOC: null, SL_NAM_NAY: 0, TANG_GIAM: null,
+    }]);
+    const service = new KpiService({ executeQuery } as unknown as OracleService);
+
+    const result = await service.v2SubscriberReport('2026-10');
+
+    expect(executeQuery).toHaveBeenCalledWith(
+      expect.stringContaining('FROM NBH_CDS_NEW.TONGHOP_KPI_SOLUONG_C3'),
+      { reportMonth: expect.objectContaining({ val: '202610' }) },
+    );
+    expect(result.rows).toEqual([
+      expect.objectContaining({ kpi: 'FIBER_PTM_C3', service: 'FIBER', indicator: 'PTM', previousCount: 1357, currentCount: 1405, change: 48 }),
+      expect.objectContaining({ kpi: 'MESH_TL_C3', indicator: 'HUY', previousCount: null, currentCount: 0, change: null }),
+    ]);
+  });
+});
+
 describe('KpiService.fiberPsc', () => {
   it('binds the selected month and maps the pivot columns without mixing province and unit rows', async () => {
     const executeProcedure = vi.fn().mockResolvedValue({ outBinds: { RSOUT: [

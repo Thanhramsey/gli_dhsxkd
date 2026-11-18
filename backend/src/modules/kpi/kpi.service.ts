@@ -143,6 +143,19 @@ export interface KpiV2TrendRow {
   annualPlan: number | null;
 }
 
+export interface KpiV2SubscriberRow {
+  kpi: string;
+  unitCode: string;
+  unitName: string;
+  service: string;
+  indicator: string;
+  previousYear: number | null;
+  currentYear: number | null;
+  previousCount: number | null;
+  currentCount: number | null;
+  change: number | null;
+}
+
 @Injectable()
 export class KpiService {
   constructor(private readonly oracleService: OracleService) {}
@@ -195,6 +208,45 @@ export class KpiService {
         cumulativePlan: number(row.KE_HOACH_LK_THANG),
         annualPlan: number(row.KE_HOACH_LK_NAM),
         rank: number(row.XEP_HANG),
+      })),
+    };
+  }
+
+  async v2SubscriberReport(month: string): Promise<{ month: string; rows: KpiV2SubscriberRow[] }> {
+    const snapshot = month.replace('-', '');
+    const rows = await this.oracleService.executeQuery<Record<string, unknown>>(
+      `SELECT KPI, MA_DV, TEN_DV, DICH_VU, CHI_TIEU, NAM_TRUOC, NAM_NAY,
+              SL_NAM_TRUOC, SL_NAM_NAY, TANG_GIAM
+         FROM (
+           SELECT t.*, ROW_NUMBER() OVER (
+             PARTITION BY KPI, MA_DV ORDER BY KY_CUOC DESC, NGAY_CAP_NHAT DESC
+           ) AS RN
+             FROM NBH_CDS_NEW.TONGHOP_KPI_SOLUONG_C3 t
+            WHERE TRIM(THANG_DULIEU) = :reportMonth
+              AND TRIM(THANG) = :reportMonth
+         )
+        WHERE RN = 1
+        ORDER BY DICH_VU, CHI_TIEU, MA_DV`,
+      { reportMonth: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: snapshot } },
+    );
+    const number = (value: unknown): number | null => {
+      if (value == null || String(value).trim() === '') return null;
+      const parsed = Number(value);
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+    return {
+      month,
+      rows: rows.map(row => ({
+        kpi: String(row.KPI ?? '').trim(),
+        unitCode: String(row.MA_DV ?? '').trim(),
+        unitName: String(row.TEN_DV ?? '').trim(),
+        service: String(row.DICH_VU ?? '').trim(),
+        indicator: String(row.CHI_TIEU ?? '').trim(),
+        previousYear: number(row.NAM_TRUOC),
+        currentYear: number(row.NAM_NAY),
+        previousCount: number(row.SL_NAM_TRUOC),
+        currentCount: number(row.SL_NAM_NAY),
+        change: number(row.TANG_GIAM),
       })),
     };
   }

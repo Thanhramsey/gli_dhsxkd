@@ -26,6 +26,12 @@ export class KpiController {
     return this.service.v2Report(input.month);
   }
 
+  @Post('v2-subscriber-report')
+  @ApiOperation({ summary: 'Sản lượng thuê bao theo dịch vụ và địa bàn từ TONGHOP_KPI_SOLUONG_C3' })
+  v2SubscriberReport(@Body() input: KpiQueryDto) {
+    return this.service.v2SubscriberReport(input.month);
+  }
+
   @Post('v2-unit-trend')
   @ApiOperation({ summary: 'Doanh thu KPI của một địa bàn từ tháng 1 đến tháng báo cáo' })
   v2UnitTrend(@Body() input: KpiV2TrendQueryDto) {

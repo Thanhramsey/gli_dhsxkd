@@ -69,6 +69,24 @@ export interface KpiV2Report {
   rows: KpiV2Row[]
 }
 
+export interface KpiV2SubscriberRow {
+  kpi: string
+  unitCode: string
+  unitName: string
+  service: string
+  indicator: string
+  previousYear: number | null
+  currentYear: number | null
+  previousCount: number | null
+  currentCount: number | null
+  change: number | null
+}
+
+export interface KpiV2SubscriberReport {
+  month: string
+  rows: KpiV2SubscriberRow[]
+}
+
 export interface KpiV2TrendRow {
   month: string
   monthlyRevenue: number | null
