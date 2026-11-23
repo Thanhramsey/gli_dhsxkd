@@ -32,6 +32,7 @@ export interface KpiFiberDevelopment {
 }
 
 export interface KpiFiberPscRow {
+  service: string
   unitGroup: string
   unitCode: string
   unitName: string

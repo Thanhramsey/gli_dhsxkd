@@ -99,14 +99,17 @@ describe('KpiService.v2SubscriberReport', () => {
 });
 
 describe('KpiService.fiberPsc', () => {
-  it('binds the selected month and maps the pivot columns without mixing province and unit rows', async () => {
+  it('binds the selected month and keeps Fiber and MyTV rows separate for each unit', async () => {
     const executeProcedure = vi.fn().mockResolvedValue({ outBinds: { RSOUT: [
-      { NHOM_DVI: null, MA_DV: '237', TEN_DV: 'Viễn thông Gia Lai', TBPSC_THANG: 120, TBPSCTT_THANG: 90,
+      { NHOM_DICHVUGB: 'FIBER', NHOM_DVI: null, MA_DV: '237', TEN_DV: 'Viễn thông Gia Lai', TBPSC_THANG: 120, TBPSCTT_THANG: 90,
         DT_THUCHIEN_THANG: 250000000, DT_THUCHIEN_LK: 1000000000, DT_KE_HOACH_THANG: 300000000,
         DT_KE_HOACH_THANG_LK: 1200000000, DT_KE_HOACH_NAM: 3600000000 },
-      { NHOM_DVI: 'DB_CHUNG', MA_DV: '1', TEN_DV: 'An Khê', TBPSC_THANG: 20, TBPSCTT_THANG: null,
+      { NHOM_DICHVUGB: 'FIBER', NHOM_DVI: 'DB_CHUNG', MA_DV: '1', TEN_DV: 'An Khê', TBPSC_THANG: 20, TBPSCTT_THANG: null,
         DT_THUCHIEN_THANG: 50000000, DT_THUCHIEN_LK: 200000000, DT_KE_HOACH_THANG: 0,
         DT_KE_HOACH_THANG_LK: 220000000, DT_KE_HOACH_NAM: 700000000 },
+      { NHOM_DICHVUGB: 'MYTV', NHOM_DVI: 'DB_CHUNG', MA_DV: '1', TEN_DV: 'An Khê', TBPSC_THANG: 7, TBPSCTT_THANG: 5,
+        DT_THUCHIEN_THANG: 8000000, DT_THUCHIEN_LK: 40000000, DT_KE_HOACH_THANG: 9000000,
+        DT_KE_HOACH_THANG_LK: 45000000, DT_KE_HOACH_NAM: 130000000 },
     ] } });
     const executeQuery = vi.fn().mockResolvedValue([
       { MA_DV: '237', NHOM_DVI: 'TOANTINH' },
@@ -116,15 +119,38 @@ describe('KpiService.fiberPsc', () => {
 
     const result = await service.fiberPsc('2026-11');
 
-    expect(executeProcedure).toHaveBeenCalledWith('NBH_CDS_NEW.BCGIAOBAN_GLI', 'SP_VIEW_PSC_FIBER', expect.objectContaining({
+    expect(executeProcedure).toHaveBeenCalledWith('NBH_CDS_NEW.BCGIAOBAN_GLI', 'SP_VIEW_PSC', expect.objectContaining({
       P_MONTH: expect.objectContaining({ val: '202611' }),
       RSOUT: expect.objectContaining({ dir: expect.any(Number) }),
     }));
     expect(result.rows).toEqual([
-      expect.objectContaining({ unitGroup: 'TOANTINH', unitCode: '237', monthlyPscSubscribers: 120, monthlyNetPscSubscribers: 90, monthlyRevenue: 250000000, annualRevenuePlan: 3600000000 }),
-      expect.objectContaining({ unitGroup: 'TTVT', unitCode: '1', monthlyNetPscSubscribers: null, monthlyRevenuePlan: 0 }),
+      expect.objectContaining({ service: 'FIBER', unitGroup: 'TOANTINH', unitCode: '237', monthlyPscSubscribers: 120, monthlyNetPscSubscribers: 90, monthlyRevenue: 250000000, annualRevenuePlan: 3600000000 }),
+      expect.objectContaining({ service: 'FIBER', unitGroup: 'TTVT', unitCode: '1', monthlyNetPscSubscribers: null, monthlyRevenuePlan: 0 }),
+      expect.objectContaining({ service: 'MYTV', unitGroup: 'TTVT', unitCode: '1', monthlyPscSubscribers: 7, monthlyRevenue: 8000000 }),
     ]);
     expect(executeQuery).toHaveBeenCalledWith(expect.stringContaining('FROM v_donvi_diaban'));
+  });
+});
+
+describe('KpiService.fiberDevelopment', () => {
+  it('calls SP_VIEW_PTM with a bound month and keeps Fiber and MyTV indicators', async () => {
+    const executeProcedure = vi.fn().mockResolvedValue({ outBinds: { RSOUT: [
+      { MA_KPI: 'DTPTM_FIBER', TEN_KPI: 'Doanh thu PTM Fiber', NHOM_DVI: 'TOANTINH', MA_DV: '237', TEN_DV: 'Gia Lai', KE_HOACH_THANG: 100, THUCHIEN_THANG: 90 },
+      { MA_KPI: 'SLPTM_FIBER', TEN_KPI: 'Thuê bao PTM Fiber', NHOM_DVI: 'TOANTINH', MA_DV: '237', TEN_DV: 'Gia Lai', KE_HOACH_THANG: 10, THUCHIEN_THANG: 9 },
+      { MA_KPI: 'DTPTM_MYTV', TEN_KPI: 'Doanh thu PTM MyTV', NHOM_DVI: 'TTVT', MA_DV: '1', TEN_DV: 'An Khê', KE_HOACH_THANG: 20, THUCHIEN_THANG: 0 },
+      { MA_KPI: 'SLPTM_MYTV', TEN_KPI: 'Thuê bao PTM MyTV', NHOM_DVI: 'TTVT', MA_DV: '1', TEN_DV: 'An Khê', KE_HOACH_THANG: null, THUCHIEN_THANG: 3 },
+    ] } });
+    const service = new KpiService({ executeProcedure } as unknown as OracleService);
+
+    const result = await service.fiberDevelopment('2026-10');
+
+    expect(executeProcedure).toHaveBeenCalledWith('NBH_CDS_NEW.BCGIAOBAN_GLI', 'SP_VIEW_PTM', expect.objectContaining({
+      P_MONTH: expect.objectContaining({ val: '202610' }),
+      RSOUT: expect.objectContaining({ dir: expect.any(Number) }),
+    }));
+    expect(result.rows.map(row => row.kpi)).toEqual(['DTPTM_FIBER', 'SLPTM_FIBER', 'DTPTM_MYTV', 'SLPTM_MYTV']);
+    expect(result.rows[2]).toEqual(expect.objectContaining({ unitGroup: 'TTVT', unitCode: '1', plan: 20, actual: 0 }));
+    expect(result.rows[3]).toEqual(expect.objectContaining({ plan: null, actual: 3 }));
   });
 });
 

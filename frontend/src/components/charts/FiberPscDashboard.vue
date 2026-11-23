@@ -8,6 +8,9 @@ import '../../plugins/echarts'
 
 const props = defineProps<{ rows: KpiFiberPscRow[]; month: string }>()
 const theme = useTheme()
+type Service = 'ALL' | 'FIBER' | 'MYTV'
+const service = ref<Service>('ALL')
+const serviceLabel = computed(() => service.value === 'ALL' ? 'Tất cả' : service.value === 'FIBER' ? 'Fiber' : 'MyTV')
 const period = ref<'month' | 'cumulative'>('month')
 const chartMode = ref<'rate' | 'value'>('rate')
 const subscriberMetric = ref<'psc' | 'net'>('psc')
@@ -22,11 +25,42 @@ const revenue = (value: number | null | undefined) => value == null ? '—' : `$
 const rate = (actual: number | null, plan: number | null) => plan != null && plan > 0 && actual != null ? actual / plan * 100 : null
 const periodLabel = computed(() => `${period.value === 'month' ? 'Tháng' : 'Lũy kế đến tháng'} ${Number(props.month.slice(5))}/${props.month.slice(0, 4)}`)
 
-const provinceRows = computed(() => props.rows.filter(row => row.unitGroup === 'TOANTINH'))
+const sourceRows = computed(() => props.rows.filter(row => service.value === 'ALL' || row.service === service.value))
+const metrics = ['monthlyPscSubscribers', 'monthlyNetPscSubscribers', 'monthlyRevenue', 'cumulativeRevenue', 'monthlyRevenuePlan', 'cumulativeRevenuePlan', 'annualRevenuePlan'] as const
+const groupedRows = computed(() => {
+  if (service.value !== 'ALL') return { rows: sourceRows.value, incomplete: 0 }
+  const groups = new Map<string, KpiFiberPscRow[]>()
+  for (const row of sourceRows.value) {
+    const key = JSON.stringify([row.unitGroup, row.unitCode || row.unitName])
+    groups.set(key, [...(groups.get(key) ?? []), row])
+  }
+  const rows: KpiFiberPscRow[] = []
+  let incomplete = 0
+  for (const groupRows of groups.values()) {
+    const fiber = groupRows.filter(row => row.service === 'FIBER')
+    const mytv = groupRows.filter(row => row.service === 'MYTV')
+    if (fiber.length !== 1 || mytv.length !== 1 || groupRows.length !== 2) {
+      incomplete++
+      continue
+    }
+    const row: KpiFiberPscRow = { ...fiber[0], service: 'ALL' }
+    for (const key of metrics) {
+      const first = fiber[0][key]
+      const second = mytv[0][key]
+      row[key] = first == null && second == null ? null : (first ?? 0) + (second ?? 0)
+    }
+    rows.push(row)
+  }
+  return { rows, incomplete }
+})
+const provinceRows = computed(() => groupedRows.value.rows.filter(row => row.unitGroup === 'TOANTINH'))
 const province = computed(() => provinceRows.value.length === 1 ? provinceRows.value[0] : null)
-const units = computed(() => props.rows.filter(row => row.unitGroup === 'TTVT'))
-const unknownGroups = computed(() => props.rows.filter(row => !['TOANTINH', 'TTVT'].includes(row.unitGroup)).length)
-const duplicateUnits = computed(() => new Set(units.value.map(row => row.unitCode)).size !== units.value.length)
+const units = computed(() => groupedRows.value.rows.filter(row => row.unitGroup === 'TTVT'))
+const unknownGroups = computed(() => sourceRows.value.filter(row => !['TOANTINH', 'TTVT'].includes(row.unitGroup)).length)
+const duplicateUnits = computed(() => {
+  const keys = sourceRows.value.filter(row => row.unitGroup === 'TTVT').map(row => JSON.stringify([row.service, row.unitCode || row.unitName]))
+  return new Set(keys).size !== keys.length
+})
 const selected = computed(() => units.value.find(row => row.unitCode === selectedCode.value) ?? null)
 const current = computed(() => selected.value ?? province.value)
 const monthlyRate = computed(() => rate(current.value?.monthlyRevenue ?? null, current.value?.monthlyRevenuePlan ?? null))
@@ -114,6 +148,7 @@ function selectUnit(event: { dataIndex?: number }, rows: KpiFiberPscRow[]) {
   if (row) selectedCode.value = selectedCode.value === row.unitCode ? null : row.unitCode
 }
 watch(() => props.rows, () => { selectedCode.value = null })
+watch(service, () => { selectedCode.value = null })
 
 const tableRows = computed(() => filteredUnits.value.map(row => ({
   ...row,
@@ -138,13 +173,14 @@ const headers = [
 
 <template>
   <section class="fiber-psc">
-    <v-alert v-if="!rows.length" type="info" variant="tonal">Không có dữ liệu phát sinh cước Fiber trong {{ periodLabel.toLowerCase() }}.</v-alert>
+    <v-alert v-if="!rows.length" type="info" variant="tonal">Không có dữ liệu phát sinh cước trong {{ periodLabel.toLowerCase() }}.</v-alert>
     <template v-else>
       <div class="section-heading">
         <div><h2>{{ selected?.unitName ?? 'Tổng quan toàn tỉnh' }}</h2><small>Doanh thu và thuê bao tháng {{ Number(month.slice(5)) }}/{{ month.slice(0, 4) }} · Chọn một cột biểu đồ để xem đơn vị</small></div>
-        <div class="heading-actions"><v-btn v-if="selected" size="small" color="primary" variant="tonal" prepend-icon="mdi-close-circle-outline" @click="selectedCode = null">Xem toàn tỉnh</v-btn></div>
+        <div class="heading-actions"><v-btn v-if="selected" size="small" color="primary" variant="tonal" prepend-icon="mdi-close-circle-outline" @click="selectedCode = null">Xem toàn tỉnh</v-btn><v-btn-toggle v-model="service" mandatory density="compact" variant="tonal" color="primary" aria-label="Dịch vụ phát sinh cước"><v-btn value="ALL" size="small">Tất cả</v-btn><v-btn value="FIBER" size="small">Fiber</v-btn><v-btn value="MYTV" size="small">MyTV</v-btn></v-btn-toggle></div>
       </div>
       <v-alert v-if="provinceRows.length !== 1" class="mb-4" type="warning" variant="tonal" density="compact">Dữ liệu toàn tỉnh {{ provinceRows.length ? 'bị trùng' : 'chưa có' }}; không cộng các đơn vị để thay thế.</v-alert>
+      <v-alert v-if="groupedRows.incomplete" class="mb-4" type="warning" variant="tonal" density="compact">{{ groupedRows.incomplete }} đơn vị thiếu hoặc trùng dữ liệu Fiber/MyTV nên chưa thể tính tổng.</v-alert>
       <v-alert v-if="unknownGroups || duplicateUnits" class="mb-4" type="warning" variant="tonal" density="compact">{{ unknownGroups ? `${unknownGroups} dòng có nhóm đơn vị chưa hỗ trợ. ` : '' }}{{ duplicateUnits ? 'Có mã đơn vị TTVT bị trùng; vui lòng kiểm tra nguồn dữ liệu.' : '' }}</v-alert>
       <v-row class="summary-grid">
         <v-col cols="12" sm="6" xl="3"><v-card class="summary-card" elevation="0"><small>DOANH THU THÁNG</small><strong>{{ revenue(current?.monthlyRevenue) }}</strong><span>KH tháng: {{ revenue(current?.monthlyRevenuePlan) }}</span><b class="summary-rate" :style="{ color: rateColor(monthlyRate) }">Hoàn thành {{ percent(monthlyRate) }}</b></v-card></v-col>
@@ -160,7 +196,7 @@ const headers = [
           <v-col cols="12" lg="6"><div class="chart-panel"><div class="subscriber-heading"><h4>Thuê bao phát sinh cước · trong tháng</h4><div class="chart-actions"><v-btn-toggle v-model="subscriberMetric" mandatory density="compact" variant="tonal" color="primary" aria-label="Chỉ tiêu thuê bao trên biểu đồ"><v-btn value="psc" size="small">Thuê bao PSC</v-btn><v-btn value="net" size="small">PSC thực tăng</v-btn></v-btn-toggle><v-btn :icon="subscriberDescending ? 'mdi-sort-descending' : 'mdi-sort-ascending'" size="small" variant="tonal" color="primary" :title="`Thuê bao: đang xếp ${subscriberDescending ? 'giảm' : 'tăng'} dần. Bấm để đảo chiều`" :aria-label="`Sắp xếp thuê bao ${subscriberDescending ? 'tăng' : 'giảm'} dần`" @click="subscriberDescending = !subscriberDescending" /></div></div><div class="chart-scroll"><VChart class="chart" :option="subscriberOption" :style="{ height: `${Math.max(410, subscriberRows.length * 34 + 60)}px` }" autoresize @click="selectUnit($event, subscriberRows)" /></div></div></v-col>
         </v-row>
       </v-card>
-      <v-card class="panel table-panel" elevation="0"><div class="table-heading"><h3>Chi tiết phát sinh cước Fiber theo đơn vị</h3><small>Đơn vị doanh thu: đồng · chọn tiêu đề cột để sắp xếp</small></div><v-data-table :headers="headers" :items="tableRows" item-value="unitCode" :sort-by="[{ key: 'monthlyRevenue', order: 'desc' }]" :items-per-page="20" :items-per-page-options="[20, 50, 100, 200, 500]" density="comfortable" hover class="psc-table">
+      <v-card class="panel table-panel" elevation="0"><div class="table-heading"><h3>Chi tiết phát sinh cước {{ serviceLabel }} theo đơn vị</h3><small>Đơn vị doanh thu: đồng · chọn tiêu đề cột để sắp xếp</small></div><v-data-table :headers="headers" :items="tableRows" item-value="unitCode" :sort-by="[{ key: 'monthlyRevenue', order: 'desc' }]" :items-per-page="20" :items-per-page-options="[20, 50, 100, 200, 500]" density="comfortable" hover class="psc-table">
         <template #item.unitName="{ item }"><v-btn variant="text" color="primary" size="small" class="unit-link" @click="selectedCode = selectedCode === item.unitCode ? null : item.unitCode">{{ item.unitName }}</v-btn></template>
         <template v-for="key in ['monthlyPscSubscribers', 'monthlyNetPscSubscribers', 'monthlyRevenue', 'monthlyRevenuePlan', 'cumulativeRevenue', 'cumulativeRevenuePlan', 'annualRevenuePlan']" :key="key" #[`item.${key}`]="{ value }">{{ format(value) }}</template>
         <template v-for="key in ['monthlyRate', 'cumulativeRate', 'annualRate']" :key="key" #[`item.${key}`]="{ value }"><strong :style="{ color: rateColor(value) }">{{ percent(value) }}</strong></template>

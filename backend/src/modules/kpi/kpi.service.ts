@@ -109,6 +109,7 @@ export interface KpiPscRow {
 }
 
 export interface KpiFiberPscRow {
+  service: string;
   unitGroup: string;
   unitCode: string;
   unitName: string;
@@ -307,15 +308,14 @@ export class KpiService {
   async fiberPsc(month: string): Promise<{ month: string; rows: KpiFiberPscRow[] }> {
     const result = await this.oracleService.executeProcedure(
       'NBH_CDS_NEW.BCGIAOBAN_GLI',
-      'SP_VIEW_PSC_FIBER',
+      'SP_VIEW_PSC',
       {
         P_MONTH: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: month.replace('-', '') },
         RSOUT: { dir: oracledb.BIND_OUT, type: oracledb.CURSOR },
       },
     );
     const rawRows = result.outBinds?.RSOUT;
-    // The current procedure selects TH.NHOM_DVI, which can be DB_CHUNG or NULL.
-    // Resolve the group from the same unit source used to build its result set.
+    // SP_VIEW_PSC labels TTVT rows DB_CHUNG; resolve their display group from the unit source.
     const unitGroups = new Map<string, string>();
     if (Array.isArray(rawRows) && rawRows.length) {
       const groupRows = await this.oracleService.executeQuery<{ MA_DV: unknown; NHOM_DVI: unknown }>(
@@ -337,6 +337,7 @@ export class KpiService {
     return {
       month,
       rows: Array.isArray(rawRows) ? rawRows.map((row: Record<string, unknown>) => ({
+        service: String(row.NHOM_DICHVUGB ?? '').trim().toUpperCase(),
         unitGroup: unitGroups.get(String(row.MA_DV ?? '').trim()) ?? String(row.NHOM_DVI ?? '').trim().toUpperCase(),
         unitCode: String(row.MA_DV ?? '').trim(),
         unitName: String(row.TEN_DV ?? '').trim(),
@@ -354,7 +355,7 @@ export class KpiService {
   async fiberDevelopment(month: string) {
     const result = await this.oracleService.executeProcedure(
       'NBH_CDS_NEW.BCGIAOBAN_GLI',
-      'SP_VIEW_PTM_FIBER',
+      'SP_VIEW_PTM',
       {
         P_MONTH: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: month.replace('-', '') },
         RSOUT: { dir: oracledb.BIND_OUT, type: oracledb.CURSOR },

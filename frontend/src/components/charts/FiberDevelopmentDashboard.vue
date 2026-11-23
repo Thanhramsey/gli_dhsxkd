@@ -9,16 +9,20 @@ import '../../plugins/echarts'
 
 const props = defineProps<{ rows: KpiFiberDevelopmentRow[]; month: string }>()
 const theme = useTheme()
-const indicators = [
-  { code: 'DTPTM_FIBER', title: 'Doanh thu phát triển mới', money: true, prefix: 'revenue' },
-  { code: 'SLPTM_FIBER', title: 'Thuê bao phát triển mới', money: false, prefix: 'subscribers' },
-] as const
-type Indicator = typeof indicators[number]
+type Service = 'ALL' | 'FIBER' | 'MYTV'
+type Indicator = { code: string; title: string; money: boolean; prefix: 'revenue' | 'subscribers' }
+const service = ref<Service>('ALL')
+const serviceLabel = computed(() => service.value === 'ALL' ? 'Tất cả' : service.value === 'FIBER' ? 'Fiber' : 'MyTV')
+const selectedServices = computed(() => service.value === 'ALL' ? ['FIBER', 'MYTV'] as const : [service.value])
+const indicators = computed<Indicator[]>(() => [
+  { code: `DTPTM_${service.value}`, title: 'Doanh thu phát triển mới', money: true, prefix: 'revenue' },
+  { code: `SLPTM_${service.value}`, title: 'Thuê bao phát triển mới', money: false, prefix: 'subscribers' },
+])
 const period = ref<'month' | 'cumulative'>('month')
 const group = ref<'TTVT' | 'VNPT'>('TTVT')
 const chartMode = ref<'rate' | 'value'>('rate')
 const selectedUnitKey = ref<string | null>(null)
-const descending = ref<Record<string, boolean>>({ DTPTM_FIBER: false, SLPTM_FIBER: false })
+const descending = ref<Record<string, boolean>>({})
 const search = ref('')
 const nf = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 })
 const number = (value: number | null | undefined) => value == null ? '—' : nf.format(value)
@@ -60,8 +64,20 @@ function values(row?: KpiFiberDevelopmentRow) {
   const rate = plan != null && plan > 0 && actual != null ? actual / plan * 100 : null
   return { plan, actual, rate }
 }
-const province = computed(() => indicators.map(indicator => ({
-  ...indicator, ...values(uniqueRow(props.rows.filter(row => row.unitGroup === 'TOANTINH'), indicator.code)),
+function sumValues(rows: KpiFiberDevelopmentRow[], prefix: 'DTPTM' | 'SLPTM') {
+  const matches = selectedServices.value.map(item => uniqueRow(rows, `${prefix}_${item}`))
+  if (matches.some(row => !row)) return values()
+  const selected = matches as KpiFiberDevelopmentRow[]
+  const sum = (key: 'plan' | 'actual' | 'cumulativePlan' | 'cumulativeActual') => {
+    const available = selected.map(row => row[key]).filter((value): value is number => value != null)
+    return available.length ? available.reduce((total, value) => total + value, 0) : null
+  }
+  const plan = sum(period.value === 'month' ? 'plan' : 'cumulativePlan')
+  const actual = sum(period.value === 'month' ? 'actual' : 'cumulativeActual')
+  return { plan, actual, rate: plan != null && plan > 0 && actual != null ? actual / plan * 100 : null }
+}
+const province = computed(() => indicators.value.map(indicator => ({
+  ...indicator, ...sumValues(props.rows.filter(row => row.unitGroup === 'TOANTINH'), indicator.prefix === 'revenue' ? 'DTPTM' : 'SLPTM'),
 })))
 function summaryOption(item: typeof province.value[number]) {
   return {
@@ -83,14 +99,15 @@ const unitGroups = computed(() => {
   const units = new Map<string, { key: string; name: string; group: string; rows: KpiFiberDevelopmentRow[] }>()
   for (const row of props.rows) {
     if (!['TTVT', 'VNPT'].includes(row.unitGroup)) continue
+    if (!selectedServices.value.some(item => row.kpi.endsWith(`_${item}`))) continue
     const key = JSON.stringify([row.unitGroup, row.unitCode || row.unitName])
     const item = units.get(key) ?? { key, name: row.unitName || 'Chưa có tên đơn vị', group: row.unitGroup, rows: [] }
     item.rows.push(row)
     units.set(key, item)
   }
   return [...units.values()].map(item => {
-    const revenue = values(uniqueRow(item.rows, 'DTPTM_FIBER'))
-    const subscribers = values(uniqueRow(item.rows, 'SLPTM_FIBER'))
+    const revenue = sumValues(item.rows, 'DTPTM')
+    const subscribers = sumValues(item.rows, 'SLPTM')
     return { key: item.key, name: item.name, group: item.group, revenue, subscribers,
       revenuePlan: revenue.plan, revenueActual: revenue.actual, revenueRate: revenue.rate,
       subscribersPlan: subscribers.plan, subscribersActual: subscribers.actual, subscribersRate: subscribers.rate,
@@ -99,10 +116,11 @@ const unitGroups = computed(() => {
 })
 const selectedUnit = computed(() => unitGroups.value.find(unit => unit.key === selectedUnitKey.value))
 const summaryItems = computed(() => selectedUnit.value
-  ? indicators.map(indicator => ({ ...indicator, ...selectedUnit.value![indicator.prefix] }))
+  ? indicators.value.map(indicator => ({ ...indicator, ...selectedUnit.value![indicator.prefix] }))
   : province.value)
 watch(() => props.rows, () => { selectedUnitKey.value = null })
 watch(group, () => { selectedUnitKey.value = null })
+watch(service, () => { selectedUnitKey.value = null })
 const groupCount = (name: string) => unitGroups.value.filter(unit => unit.group === name).length
 const filteredUnits = computed(() => unitGroups.value.filter(unit => unit.group === group.value && unit.name.toLocaleLowerCase('vi').includes(search.value.trim().toLocaleLowerCase('vi'))))
 function scrollChart(event: WheelEvent) {
@@ -181,12 +199,13 @@ const headers = [
 
 <template>
   <section class="fiber-development">
-    <v-alert v-if="!rows.length" type="info" variant="tonal">Không có dữ liệu phát triển mới Fiber trong {{ periodLabel.toLowerCase() }}.</v-alert>
+    <v-alert v-if="!rows.length" type="info" variant="tonal">Không có dữ liệu phát triển mới trong {{ periodLabel.toLowerCase() }}.</v-alert>
     <template v-else>
       <div class="section-heading">
         <div><h2>{{ selectedUnit?.name ?? 'Tổng quan toàn tỉnh' }}</h2><small>{{ periodLabel }}</small></div>
         <div class="section-heading__actions">
           <v-btn v-if="selectedUnit" size="small" variant="tonal" color="primary" prepend-icon="mdi-close-circle-outline" @click="selectedUnitKey = null">Xem toàn tỉnh</v-btn>
+          <v-btn-toggle v-model="service" mandatory density="compact" variant="tonal" color="primary" aria-label="Dịch vụ phát triển mới"><v-btn value="ALL" size="small">Tất cả</v-btn><v-btn value="FIBER" size="small">Fiber</v-btn><v-btn value="MYTV" size="small">MyTV</v-btn></v-btn-toggle>
           <v-btn-toggle v-model="period" mandatory density="compact" variant="tonal" color="primary"><v-btn value="month" size="small">Trong tháng</v-btn><v-btn value="cumulative" size="small">Lũy kế</v-btn></v-btn-toggle>
         </div>
       </div>
@@ -207,7 +226,7 @@ const headers = [
         <v-alert v-if="!filteredUnits.length" type="info" variant="tonal" class="mx-4 mb-4">Không có đơn vị {{ group }} phù hợp.</v-alert>
         <template v-else>
           <div class="unit-charts"><div v-for="indicator in indicators" :key="indicator.code" class="unit-chart-card">
-            <div class="chart-heading"><strong>{{ indicator.title }} · {{ group }}</strong><v-btn :icon="descending[indicator.code] ? 'mdi-sort-descending' : 'mdi-sort-ascending'" variant="tonal" color="primary" size="small" :title="`${chartMode === 'rate' ? 'Tỷ lệ hoàn thành' : 'Thực hiện'}: ${descending[indicator.code] ? 'giảm dần' : 'tăng dần'}. Bấm để đảo chiều`" @click="descending[indicator.code] = !descending[indicator.code]" /></div>
+            <div class="chart-heading"><strong>{{ indicator.title }} · {{ serviceLabel }} · {{ group }}</strong><v-btn :icon="descending[indicator.code] ? 'mdi-sort-descending' : 'mdi-sort-ascending'" variant="tonal" color="primary" size="small" :title="`${chartMode === 'rate' ? 'Tỷ lệ hoàn thành' : 'Thực hiện'}: ${descending[indicator.code] ? 'giảm dần' : 'tăng dần'}. Bấm để đảo chiều`" @click="descending[indicator.code] = !descending[indicator.code]" /></div>
             <div v-if="chartMode === 'rate'" class="rate-legend" aria-label="Chú giải màu tỷ lệ hoàn thành">
               <span><i class="rate-legend__red" />Dưới 70%</span>
               <span><i class="rate-legend__amber" />70–90%</span>
@@ -216,7 +235,7 @@ const headers = [
             </div>
             <div class="unit-chart-scroll" tabindex="0" :aria-label="indicator.title" @wheel.capture="scrollChart"><ZoomableKpiChart :option="unitOption(indicator)" axis="y" :count="filteredUnits.length" :style="{ height: `${Math.max(360, filteredUnits.length * (chartMode === 'rate' ? 26 : 34) + 85)}px` }" @click="selectChartUnit($event, indicator)" /></div>
           </div></div>
-          <div class="table-heading"><strong>Chi tiết {{ group === 'TTVT' ? 'Trung tâm Viễn thông' : 'đơn vị VNPT' }}</strong><small>{{ periodLabel }} · {{ filteredUnits.length }} đơn vị</small></div>
+          <div class="table-heading"><strong>Chi tiết {{ serviceLabel }} · {{ group === 'TTVT' ? 'Trung tâm Viễn thông' : 'đơn vị VNPT' }}</strong><small>{{ periodLabel }} · {{ filteredUnits.length }} đơn vị</small></div>
           <v-data-table :headers="headers" :items="filteredUnits" item-value="key" :sort-by="[{ key: 'revenueRate', order: 'asc' }]" :items-per-page="20" :items-per-page-options="[10, 20, 50]" density="comfortable" hover class="fiber-table">
             <template #item.name="{ item }">{{ item.name }}</template>
             <template v-for="key in ['revenuePlan', 'revenueActual', 'subscribersPlan', 'subscribersActual']" :key="key" #[`item.${key}`]="{ value }">{{ number(value) }}</template>

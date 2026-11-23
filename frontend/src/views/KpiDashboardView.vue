@@ -18,7 +18,7 @@ const monthOptions = Array.from({ length: 12 }, (_, index) => ({ title: `Tháng 
 const yearOptions = Array.from({ length: 8 }, (_, index) => now.getFullYear() + 1 - index)
 const month = computed(() => `${year.value}-${String(monthNumber.value).padStart(2, '0')}`)
 type KpiMaintenanceProcedure = 'BC_DT_DUY_TRI_FIBER_MYTV'
-type DashboardProcedure = 'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure | KpiMaintenanceProcedure | 'TH_TANGGIAMTB_DB' | 'SP_VIEW_PTM_FIBER' | 'SP_VIEW_PSC_FIBER'
+type DashboardProcedure = 'TONG_HOP_KPI' | KpiTrendProcedure | KpiPscProcedure | KpiMaintenanceProcedure | 'TH_TANGGIAMTB_DB' | 'SP_VIEW_PTM' | 'SP_VIEW_PSC'
 const procedureOptions: { title: string; value: DashboardProcedure }[] = [
   { title: 'Tổng hợp KPI', value: 'TONG_HOP_KPI' },
   { title: 'BRCD (Fiber)', value: 'TONG_HOP_KPI_BRCD' },
@@ -33,8 +33,8 @@ const procedureOptions: { title: string; value: DashboardProcedure }[] = [
   { title: 'Tỷ lệ ngừng PSC MyTV', value: 'TYLE_NGUNG_PSC_MYTV' },
   { title: 'Doanh thu duy trì Fiber + MyTV', value: 'BC_DT_DUY_TRI_FIBER_MYTV' },
   { title: 'Biến động thuê bao', value: 'TH_TANGGIAMTB_DB' },
-  { title: 'Phát triển mới Fiber', value: 'SP_VIEW_PTM_FIBER' },
-  { title: 'Phát sinh cước Fiber', value: 'SP_VIEW_PSC_FIBER' },
+  { title: 'Phát triển mới', value: 'SP_VIEW_PTM' },
+  { title: 'Phát sinh cước', value: 'SP_VIEW_PSC' },
 ]
 const selectedProcedure = ref<DashboardProcedure>('TONG_HOP_KPI')
 const movementRows = ref<KpiSubscriberMovementRow[]>([])
@@ -116,10 +116,10 @@ function isSnapshotProcedure(procedure: string): procedure is KpiTrendProcedure 
 }
 const pageDescription = computed(() => selectedProcedure.value === 'TONG_HOP_KPI'
   ? 'Kế hoạch và kết quả thực hiện theo từng chỉ tiêu trong'
-  : selectedProcedure.value === 'SP_VIEW_PTM_FIBER'
-    ? 'Kế hoạch và thực hiện doanh thu, sản lượng thuê bao phát triển mới Fiber trong'
-  : selectedProcedure.value === 'SP_VIEW_PSC_FIBER'
-    ? 'Doanh thu, thuê bao phát sinh cước Fiber và tiến độ kế hoạch trong'
+  : selectedProcedure.value === 'SP_VIEW_PTM'
+    ? 'Kế hoạch và thực hiện doanh thu, sản lượng thuê bao phát triển mới trong'
+  : selectedProcedure.value === 'SP_VIEW_PSC'
+    ? 'Doanh thu, thuê bao phát sinh cước và tiến độ kế hoạch trong'
   : selectedProcedure.value === 'TH_TANGGIAMTB_DB'
     ? 'Phát triển, hủy và thực tăng thuê bao theo dịch vụ, đơn vị trong'
   : isPscProcedure(selectedProcedure.value)
@@ -621,11 +621,11 @@ async function load() {
       const result = await kpiApi.psc(queryMonth, procedure)
       if (version !== loadVersion) return
       pscRows.value = result.rows
-    } else if (procedure === 'SP_VIEW_PTM_FIBER') {
+    } else if (procedure === 'SP_VIEW_PTM') {
       const result = await kpiApi.fiberDevelopment(queryMonth)
       if (version !== loadVersion) return
       fiberDevelopmentRows.value = result.rows
-    } else if (procedure === 'SP_VIEW_PSC_FIBER') {
+    } else if (procedure === 'SP_VIEW_PSC') {
       const result = await kpiApi.fiberPsc(queryMonth)
       if (version !== loadVersion) return
       fiberPscRows.value = result.rows
@@ -697,7 +697,7 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
 <template>
   <v-container class="kpi-page" fluid>
     <header class="page-head">
-      <div><span class="eyebrow">HỆ THỐNG DỮ LIỆU GIAO BAN</span><h1>{{ selectedProcedure === 'SP_VIEW_PTM_FIBER' ? 'Phát triển mới Fiber' : selectedProcedure === 'SP_VIEW_PSC_FIBER' ? 'Phát sinh cước Fiber' : selectedProcedure === 'TH_TANGGIAMTB_DB' ? 'Biến động thuê bao' : isMaintenanceProcedure(selectedProcedure) ? 'Doanh thu duy trì Fiber + MyTV' : 'Tổng hợp chỉ tiêu KPI' }}</h1><p>{{ pageDescription }} <strong>{{ monthLabel }}</strong>.</p></div>
+      <div><span class="eyebrow">HỆ THỐNG DỮ LIỆU GIAO BAN</span><h1>{{ selectedProcedure === 'SP_VIEW_PTM' ? 'Phát triển mới' : selectedProcedure === 'SP_VIEW_PSC' ? 'Phát sinh cước' : selectedProcedure === 'TH_TANGGIAMTB_DB' ? 'Biến động thuê bao' : isMaintenanceProcedure(selectedProcedure) ? 'Doanh thu duy trì Fiber + MyTV' : 'Tổng hợp chỉ tiêu KPI' }}</h1><p>{{ pageDescription }} <strong>{{ monthLabel }}</strong>.</p></div>
     </header>
     <v-card class="filter-card" elevation="0"><v-card-text class="filter-row">
       <v-select v-model="selectedProcedure" :items="procedureOptions" label="Chỉ tiêu" variant="outlined" hide-details />
@@ -902,8 +902,8 @@ watch([selectedProcedure, monthNumber, year], async ([procedure], [previousProce
         </template>
       </template>
       <SubscriberMovementDashboard v-else-if="selectedProcedure === 'TH_TANGGIAMTB_DB'" :rows="movementRows" :month="month" />
-      <FiberDevelopmentDashboard v-else-if="selectedProcedure === 'SP_VIEW_PTM_FIBER'" :rows="fiberDevelopmentRows" :month="month" />
-      <FiberPscDashboard v-else-if="selectedProcedure === 'SP_VIEW_PSC_FIBER'" :rows="fiberPscRows" :month="month" />
+      <FiberDevelopmentDashboard v-else-if="selectedProcedure === 'SP_VIEW_PTM'" :rows="fiberDevelopmentRows" :month="month" />
+      <FiberPscDashboard v-else-if="selectedProcedure === 'SP_VIEW_PSC'" :rows="fiberPscRows" :month="month" />
       <template v-else>
         <div v-if="isSnapshotTrend && trendRows.length" class="snapshot-context">
           <div><span class="snapshot-period"><v-icon icon="mdi-calendar-month-outline" size="17" /> Đang xem <strong>{{ snapshotViewingLabel }}</strong></span><small>Bộ số liệu {{ monthLabel }}<template v-if="snapshotSummaryTrend?.updatedAt"> · Cập nhật {{ snapshotSummaryTrend.updatedAt }}</template></small></div>
