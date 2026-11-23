@@ -63,6 +63,10 @@ export interface KpiV2Row {
   cumulativePlan: number | null
   annualPlan: number | null
   rank: number | null
+  cumulativeRank: number | null
+  annualRank: number | null
+  monthlyChange: number | null
+  remainingAnnual: number | null
 }
 
 export interface KpiV2Report {
@@ -95,6 +99,8 @@ export interface KpiV2TrendRow {
   cumulativeRevenue: number | null
   cumulativePlan: number | null
   annualPlan: number | null
+  monthlyChange: number | null
+  remainingAnnual: number | null
 }
 
 export interface KpiV2UnitTrend {

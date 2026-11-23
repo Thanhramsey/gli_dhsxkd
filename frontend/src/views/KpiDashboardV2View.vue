@@ -8,7 +8,7 @@ import type { KpiV2Code, KpiV2Row, KpiV2TrendRow, KpiV2SubscriberRow } from '../
 import { adaptChartOptionForTheme } from '../utils/chart-theme'
 import '../plugins/echarts'
 
-type AmountKey = 'monthlyRevenue' | 'monthlyPlan' | 'cumulativeRevenue' | 'cumulativePlan' | 'annualPlan'
+type AmountKey = 'monthlyRevenue' | 'monthlyPlan' | 'cumulativeRevenue' | 'cumulativePlan' | 'annualPlan' | 'monthlyChange' | 'remainingAnnual'
 type UnitPeriod = 'monthly' | 'cumulative' | 'annual'
 const provinceCode = '237'
 const kpiColors = ['#0789c7', '#16a6a0', '#e99a28', '#8b61cf', '#e05b65', '#7da934', '#b768a3', '#4c79c5']
@@ -53,6 +53,15 @@ let loadVersion = 0
 const nf = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 2 })
 const whole = new Intl.NumberFormat('vi-VN', { maximumFractionDigits: 0 })
 const money = (value: number | null | undefined) => value == null ? '—' : nf.format(value / 1_000_000)
+const signedMoney = (value: number | null | undefined) => value == null ? '—' : `${value > 0 ? '+' : ''}${money(value)}`
+const changeColor = (value: number | null | undefined) => value == null || value === 0 ? undefined : value > 0 ? achievedColor : unmetColor
+const changeIcon = (value: number | null | undefined) => value == null || value === 0 ? undefined : value > 0 ? 'mdi-arrow-top-right' : 'mdi-arrow-bottom-right'
+const changeTooltip = (value: number | null | undefined) => value == null || value === 0
+  ? signedMoney(value)
+  : `<span style="color:${changeColor(value)}">${value > 0 ? '↗' : '↘'} ${signedMoney(value)}</span>`
+const annualGap = (value: number | null | undefined) => value == null ? '—' : value < 0 ? `Vượt ${money(-value)}` : value > 0 ? `Còn ${money(value)}` : 'Đạt kế hoạch'
+const annualGapWithUnit = (value: number | null | undefined) => `${annualGap(value)}${value == null || value === 0 ? '' : ' triệu đồng'}`
+const annualGapColor = (value: number | null | undefined) => value == null ? undefined : value <= 0 ? rateColor(100) : rateColor(80)
 const billions = (value: number | null | undefined) => value == null ? '—' : `${nf.format(value / 1_000_000_000)} tỷ đồng`
 const percent = (value: number | null | undefined) => value == null ? '—' : `${nf.format(value)}%`
 const rate = (actual: number | null, plan: number | null) => actual != null && plan != null && plan > 0 ? actual / plan * 100 : null
@@ -113,13 +122,23 @@ function subscriberChangeColor(row: KpiV2SubscriberRow | undefined): string | un
 const missingProvinceKpis = computed(() => kpis.value.filter(kpi => !provinceRows.value.some(row => row.kpi === kpi.code)))
 const unitRows = computed(() => rows.value.filter(row => row.unitCode !== provinceCode))
 const unitOptions = computed(() => [...new Map(unitRows.value.map(row => [row.unitCode, { title: row.unitName, value: row.unitCode }])).values()].sort((a, b) => a.title.localeCompare(b.title, 'vi')))
-const visibleUnits = computed(() => unitOptions.value.filter(unit => !unitCode.value || unit.value === unitCode.value))
+const unitRank = (row: KpiV2Row) => unitPeriod.value === 'cumulative' ? row.cumulativeRank : unitPeriod.value === 'annual' ? row.annualRank : row.rank
+const unitRankByCode = (code: string) => {
+  const row = unitRows.value.find(item => item.unitCode === code && item.kpi === selectedKpi.value)
+  return row ? unitRank(row) : null
+}
+const visibleUnits = computed(() => unitOptions.value.filter(unit => !unitCode.value || unit.value === unitCode.value).sort((a, b) => {
+  const left = unitRows.value.find(row => row.unitCode === a.value && row.kpi === selectedKpi.value)
+  const right = unitRows.value.find(row => row.unitCode === b.value && row.kpi === selectedKpi.value)
+  return ((left ? unitRank(left) : null) ?? Infinity) - ((right ? unitRank(right) : null) ?? Infinity) || a.title.localeCompare(b.title, 'vi')
+}))
 const visibleUnitRows = computed(() => unitRows.value.filter(row => !unitCode.value || row.unitCode === unitCode.value))
 const selectedUnitName = computed(() => unitOptions.value.find(unit => unit.value === unitCode.value)?.title ?? unitCode.value ?? '')
 const selectedRows = computed(() => visibleUnitRows.value.filter(row => row.kpi === selectedKpi.value).sort((a, b) =>
-  (a.rank && b.rank ? a.rank - b.rank : 0) || a.unitName.localeCompare(b.unitName, 'vi')))
+  (unitRank(a) ?? Infinity) - (unitRank(b) ?? Infinity) || a.unitName.localeCompare(b.unitName, 'vi')))
 const rankedUnitCodes = computed(() => unitRows.value.filter(row => row.kpi === selectedKpi.value)
-  .sort((a, b) => (a.rank ?? Infinity) - (b.rank ?? Infinity) || a.unitName.localeCompare(b.unitName, 'vi'))
+  .filter(row => unitRank(row) != null)
+  .sort((a, b) => unitRank(a)! - unitRank(b)! || a.unitName.localeCompare(b.unitName, 'vi'))
   .map(row => row.unitCode))
 const unitPeriodFields = computed<{ actual: AmountKey; plan: AmountKey; label: string; planLabel: string }>(() => {
   if (unitPeriod.value === 'cumulative') return { actual: 'cumulativeRevenue', plan: 'cumulativePlan', label: 'Thực hiện lũy kế', planLabel: 'Kế hoạch lũy kế' }
@@ -140,7 +159,7 @@ const chartMoney = (value: number | null) => value == null ? '—' : `${nf.forma
 function unitRankStyle(row: KpiV2Row): 'top' | 'bottom' | 'good' | 'warning' | 'neutral' {
   const position = rankedUnitCodes.value.indexOf(row.unitCode)
   if (position >= 0 && position < 3) return 'top'
-  if (position >= 0 && position >= rankedUnitCodes.value.length - 3) return 'bottom'
+  if (rankedUnitCodes.value.length > 3 && position >= rankedUnitCodes.value.length - 3) return 'bottom'
   const completion = rate(unitActual(row), unitPlan(row))
   return completion == null ? 'neutral' : completion >= 100 ? 'good' : 'warning'
 }
@@ -161,7 +180,9 @@ const provinceTotal = computed(() => {
   const cumulativeRevenue = sum(source, 'cumulativeRevenue')
   const cumulativePlan = sum(source, 'cumulativePlan')
   const annualPlan = sum(source, 'annualPlan')
-  return { monthlyRevenue, monthlyPlan, cumulativeRevenue, cumulativePlan, annualPlan,
+  const monthlyChange = sum(source, 'monthlyChange')
+  const remainingAnnual = sum(source, 'remainingAnnual')
+  return { monthlyRevenue, monthlyPlan, cumulativeRevenue, cumulativePlan, annualPlan, monthlyChange, remainingAnnual,
     monthlyRate: rate(monthlyRevenue, monthlyPlan),
     cumulativeRate: rate(cumulativeRevenue, cumulativePlan),
     annualRate: rate(cumulativeRevenue, annualPlan) }
@@ -183,7 +204,9 @@ const unitDetailTotal = computed(() => {
   const cumulativeRevenue = sum(source, 'cumulativeRevenue')
   const cumulativePlan = sum(source, 'cumulativePlan')
   const annualPlan = sum(source, 'annualPlan')
-  return { monthlyRevenue, monthlyPlan, cumulativeRevenue, cumulativePlan, annualPlan,
+  const monthlyChange = sum(source, 'monthlyChange')
+  const remainingAnnual = sum(source, 'remainingAnnual')
+  return { monthlyRevenue, monthlyPlan, cumulativeRevenue, cumulativePlan, annualPlan, monthlyChange, remainingAnnual,
     monthlyRate: rate(monthlyRevenue, monthlyPlan),
     cumulativeRate: rate(cumulativeRevenue, cumulativePlan),
     annualRate: rate(cumulativeRevenue, annualPlan) }
@@ -259,7 +282,7 @@ const annualProgressOption = computed(() => {
   return adaptChartOptionForTheme({
     tooltip: { ...chartTooltipStyle.value, trigger: 'axis', axisPointer: chartAxisPointer.value, formatter: (items: Array<{ dataIndex: number }>) => {
       const item = source[items[0]?.dataIndex ?? -1]
-      return item ? `${item.title}<br/>TH lũy kế: ${billions(item.row?.cumulativeRevenue)}<br/>KH năm: ${billions(item.row?.annualPlan)}<br/>Hoàn thành: ${percent(rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null))}` : ''
+      return item ? `${item.title}<br/>TH lũy kế: ${billions(item.row?.cumulativeRevenue)}<br/>KH năm: ${billions(item.row?.annualPlan)}<br/>Hoàn thành: ${percent(rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null))}<br/>So với KH năm: ${annualGapWithUnit(item.row?.remainingAnnual)}` : ''
     } },
     grid: { left: 150, right: 105, top: 22, bottom: 43 },
     xAxis: { type: 'value', min: 0, max: (range: { max: number }) => Math.max(110, Math.ceil(range.max / 10) * 10), axisLabel: { formatter: '{value}%' }, splitLine: { lineStyle: { color: '#e8eef3' } } },
@@ -278,7 +301,7 @@ const unitChartOption = computed(() => {
   return adaptChartOptionForTheme({
     tooltip: { ...chartTooltipStyle.value, trigger: 'axis', axisPointer: chartAxisPointer.value, formatter: (items: Array<{ dataIndex: number }>) => {
       const row = source[items[0]?.dataIndex ?? -1]
-      return row ? `${row.unitName}<br/>${unitPeriodFields.value.planLabel}: ${chartMoney(unitPlan(row))}<br/>${unitPeriodFields.value.label}: ${chartMoney(unitActual(row))}<br/>Hoàn thành: ${percent(rate(unitActual(row), unitPlan(row)))}${row.rank ? `<br/>Xếp hạng: ${whole.format(row.rank)}` : ''}` : ''
+      return row ? `${row.unitName}<br/>${unitPeriodFields.value.planLabel}: ${chartMoney(unitPlan(row))}<br/>${unitPeriodFields.value.label}: ${chartMoney(unitActual(row))}<br/>Hoàn thành: ${percent(rate(unitActual(row), unitPlan(row)))}${unitRank(row) != null ? `<br/>Xếp hạng: ${whole.format(unitRank(row)!)}` : ''}${unitPeriod.value === 'monthly' ? `<br/>So tháng trước: ${changeTooltip(row.monthlyChange)} triệu đồng` : ''}${unitPeriod.value === 'annual' ? `<br/>So với KH năm: ${annualGapWithUnit(row.remainingAnnual)}` : ''}` : ''
     } },
     legend: { show: false },
     grid: { left: 54, right: 36, top: 22, bottom: 115 },
@@ -299,7 +322,7 @@ const unitChartOption = computed(() => {
         const completion = row ? rate(unitActual(row), unitPlan(row)) : null
         const status = row ? unitRankStyle(row) : 'neutral'
         const rankStatus = status === 'top' ? 'rankTop' : status === 'bottom' ? 'rankBottom' : 'rank'
-        return `{unit|${value.replace(/[{}|]/g, '')}}\n{${status}|${percent(completion)}}${row?.rank ? `\n{${rankStatus}|Hạng ${whole.format(row.rank)}}` : ''}`
+        return `{unit|${value.replace(/[{}|]/g, '')}}\n{${status}|${percent(completion)}}${row && unitRank(row) != null ? `\n{${rankStatus}|Hạng ${whole.format(unitRank(row)!)}}` : ''}`
       } },
     },
     yAxis: { type: 'value', name: chartScale.value.label, axisLabel: { formatter: (value: number) => nf.format(value / chartScale.value.divisor) }, splitLine: { lineStyle: { color: '#e8eef3' } } },
@@ -317,7 +340,7 @@ const unitTrendOption = computed(() => {
   return adaptChartOptionForTheme({
     tooltip: { ...chartTooltipStyle.value, trigger: 'axis', axisPointer: chartAxisPointer.value, formatter: (items: Array<{ dataIndex: number }>) => {
       const row = source[items[0]?.dataIndex ?? -1]
-      return row ? `Tháng ${Number(row.month.slice(5))}/${row.month.slice(0, 4)}<br/>${unitPeriodFields.value.label}: ${chartMoney(trendActual(row))}<br/>${unitPeriodFields.value.planLabel}: ${chartMoney(trendPlan(row))}<br/>Hoàn thành: ${percent(rate(trendActual(row), trendPlan(row)))}` : ''
+      return row ? `Tháng ${Number(row.month.slice(5))}/${row.month.slice(0, 4)}<br/>${unitPeriodFields.value.label}: ${chartMoney(trendActual(row))}<br/>${unitPeriodFields.value.planLabel}: ${chartMoney(trendPlan(row))}<br/>Hoàn thành: ${percent(rate(trendActual(row), trendPlan(row)))}${unitPeriod.value === 'monthly' ? `<br/>So tháng trước: ${changeTooltip(row.monthlyChange)} triệu đồng` : ''}${unitPeriod.value === 'annual' ? `<br/>So với KH năm: ${annualGapWithUnit(row.remainingAnnual)}` : ''}` : ''
     } },
     grid: { left: 66, right: 35, top: 30, bottom: 65 },
     xAxis: { type: 'category', data: source.map(row => `Tháng ${Number(row.month.slice(5))}`), axisTick: { alignWithLabel: true }, axisLabel: { interval: 0, fontWeight: 600 } },
@@ -469,9 +492,14 @@ onMounted(async () => {
           </div>
           <section class="report-section">
             <div class="section-heading"><h2>1. BÁO CÁO DOANH THU TOÀN TỈNH</h2><small>{{ monthLabel }} · đơn vị: triệu đồng</small></div>
-            <v-table class="report-table" density="compact"><thead><tr><th>STT</th><th>Mã KPI</th><th>Tên KPI</th><th>KH năm</th><th>TH lũy kế</th><th>TH/KH năm</th><th>KH tháng</th><th>TH tháng</th><th>TH/KH tháng</th><th>KH lũy kế</th><th>TH/KH lũy kế</th></tr></thead><tbody>
-              <tr v-for="(kpi, index) in kpis" :key="kpi.code"><td>{{ index + 1 }}</td><td>{{ kpi.code }}</td><td>{{ kpi.title }}</td><template v-if="provinceRows.find(row => row.kpi === kpi.code)"><template v-for="row in provinceRows.filter(item => item.kpi === kpi.code)" :key="row.kpi"><td>{{ money(row.annualPlan) }}</td><td>{{ money(row.cumulativeRevenue) }}</td><td :style="{ color: rateColor(rate(row.cumulativeRevenue, row.annualPlan)) }">{{ percent(rate(row.cumulativeRevenue, row.annualPlan)) }}</td><td>{{ money(row.monthlyPlan) }}</td><td>{{ money(row.monthlyRevenue) }}</td><td :style="{ color: rateColor(rate(row.monthlyRevenue, row.monthlyPlan)) }">{{ percent(rate(row.monthlyRevenue, row.monthlyPlan)) }}</td><td>{{ money(row.cumulativePlan) }}</td><td :style="{ color: rateColor(rate(row.cumulativeRevenue, row.cumulativePlan)) }">{{ percent(rate(row.cumulativeRevenue, row.cumulativePlan)) }}</td></template></template><template v-else><td v-for="n in 8" :key="n">—</td></template></tr>
-              <tr class="total-row"><td colspan="3">Tổng</td><td>{{ money(provinceTotal.annualPlan) }}</td><td>{{ money(provinceTotal.cumulativeRevenue) }}</td><td>{{ percent(provinceTotal.annualRate) }}</td><td>{{ money(provinceTotal.monthlyPlan) }}</td><td>{{ money(provinceTotal.monthlyRevenue) }}</td><td>{{ percent(provinceTotal.monthlyRate) }}</td><td>{{ money(provinceTotal.cumulativePlan) }}</td><td>{{ percent(provinceTotal.cumulativeRate) }}</td></tr>
+            <v-table class="report-table province-table" density="compact">
+              <colgroup><col style="width:50px" /><col style="width:110px" /><col style="width:280px" /><col v-for="n in 10" :key="n" style="width:132px" /></colgroup>
+              <thead>
+                <tr><th rowspan="2">STT</th><th rowspan="2">Mã KPI</th><th rowspan="2">Tên KPI</th><th colspan="4">Trong tháng</th><th colspan="3">Lũy kế đến tháng báo cáo</th><th colspan="3">Kế hoạch năm</th></tr>
+                <tr><th>Kế hoạch</th><th>Thực hiện</th><th>± tháng trước</th><th>Hoàn thành</th><th>Kế hoạch</th><th>Thực hiện</th><th>Hoàn thành</th><th>Kế hoạch</th><th>Còn / vượt</th><th>Hoàn thành</th></tr>
+              </thead><tbody>
+              <tr v-for="(kpi, index) in kpis" :key="kpi.code"><td>{{ index + 1 }}</td><td>{{ kpi.code }}</td><td>{{ kpi.title }}</td><template v-if="provinceRows.find(row => row.kpi === kpi.code)"><template v-for="row in provinceRows.filter(item => item.kpi === kpi.code)" :key="row.kpi"><td>{{ money(row.monthlyPlan) }}</td><td>{{ money(row.monthlyRevenue) }}</td><td :style="{ color: changeColor(row.monthlyChange) }"><span class="change-value"><v-icon v-if="changeIcon(row.monthlyChange)" :icon="changeIcon(row.monthlyChange)" size="15" />{{ signedMoney(row.monthlyChange) }}</span></td><td :style="{ color: rateColor(rate(row.monthlyRevenue, row.monthlyPlan)) }">{{ percent(rate(row.monthlyRevenue, row.monthlyPlan)) }}</td><td>{{ money(row.cumulativePlan) }}</td><td>{{ money(row.cumulativeRevenue) }}</td><td :style="{ color: rateColor(rate(row.cumulativeRevenue, row.cumulativePlan)) }">{{ percent(rate(row.cumulativeRevenue, row.cumulativePlan)) }}</td><td>{{ money(row.annualPlan) }}</td><td :style="{ color: annualGapColor(row.remainingAnnual) }">{{ annualGap(row.remainingAnnual) }}</td><td :style="{ color: rateColor(rate(row.cumulativeRevenue, row.annualPlan)) }">{{ percent(rate(row.cumulativeRevenue, row.annualPlan)) }}</td></template></template><template v-else><td v-for="n in 10" :key="n">—</td></template></tr>
+              <tr class="total-row"><td colspan="3">Tổng</td><td>{{ money(provinceTotal.monthlyPlan) }}</td><td>{{ money(provinceTotal.monthlyRevenue) }}</td><td :style="{ color: changeColor(provinceTotal.monthlyChange) }"><span class="change-value"><v-icon v-if="changeIcon(provinceTotal.monthlyChange)" :icon="changeIcon(provinceTotal.monthlyChange)" size="15" />{{ signedMoney(provinceTotal.monthlyChange) }}</span></td><td>{{ percent(provinceTotal.monthlyRate) }}</td><td>{{ money(provinceTotal.cumulativePlan) }}</td><td>{{ money(provinceTotal.cumulativeRevenue) }}</td><td>{{ percent(provinceTotal.cumulativeRate) }}</td><td>{{ money(provinceTotal.annualPlan) }}</td><td :style="{ color: annualGapColor(provinceTotal.remainingAnnual) }">{{ annualGap(provinceTotal.remainingAnnual) }}</td><td>{{ percent(provinceTotal.annualRate) }}</td></tr>
             </tbody></v-table>
           </section>
           <section class="report-section subscriber-section">
@@ -516,27 +544,29 @@ onMounted(async () => {
           </v-card>
           <section class="report-section"><div class="section-heading"><h2>1. BÁO CÁO DOANH THU ĐỊA BÀN CẤP 2</h2><small>{{ monthLabel }} · {{ unitCode ? selectedUnitName : `${unitPeriodFields.label} / ${unitPeriodFields.planLabel}` }} · triệu đồng</small></div>
             <v-table v-if="unitCode" class="report-table unit-detail-table" density="compact">
-              <colgroup><col style="width:50px" /><col style="width:115px" /><col style="width:220px" /><col v-for="n in 9" :key="n" style="width:120px" /></colgroup>
+              <colgroup><col style="width:50px" /><col style="width:115px" /><col style="width:220px" /><col v-for="n in 11" :key="n" style="width:120px" /></colgroup>
               <thead>
-                <tr><th rowspan="2">STT</th><th rowspan="2">Mã KPI</th><th rowspan="2">Tên KPI</th><th colspan="3">Trong tháng</th><th colspan="3">Lũy kế đến tháng báo cáo</th><th colspan="3">So với kế hoạch năm</th></tr>
-                <tr><th>KH tháng</th><th>TH tháng</th><th>Hoàn thành</th><th>KH lũy kế</th><th>TH lũy kế</th><th>Hoàn thành</th><th>KH năm</th><th>TH lũy kế</th><th>Hoàn thành</th></tr>
+                <tr><th rowspan="2">STT</th><th rowspan="2">Mã KPI</th><th rowspan="2">Tên KPI</th><th colspan="4">Trong tháng</th><th colspan="3">Lũy kế đến tháng báo cáo</th><th colspan="4">So với kế hoạch năm</th></tr>
+                <tr><th>KH tháng</th><th>TH tháng</th><th>Hoàn thành</th><th>± tháng trước</th><th>KH lũy kế</th><th>TH lũy kế</th><th>Hoàn thành</th><th>KH năm</th><th>TH lũy kế</th><th>Hoàn thành</th><th>Còn / vượt KH năm</th></tr>
               </thead>
               <tbody>
                 <tr v-for="(item, index) in unitDetailRows" :key="item.code" class="kpi-selectable-row" :class="{ 'selected-kpi-row': item.code === selectedKpi }" tabindex="0" :aria-selected="item.code === selectedKpi" :aria-label="`Xem biểu đồ ${item.title}`" @click="selectKpiFromTable(item.code)" @keydown.enter.prevent="selectKpiFromTable(item.code)" @keydown.space.prevent="selectKpiFromTable(item.code)">
                   <td>{{ index + 1 }}</td><td>{{ item.code }}</td><td>{{ item.title }}</td>
                   <td>{{ money(item.row?.monthlyPlan) }}</td><td>{{ money(item.row?.monthlyRevenue) }}</td>
                   <td :style="{ color: rateColor(rate(item.row?.monthlyRevenue ?? null, item.row?.monthlyPlan ?? null)) }">{{ percent(rate(item.row?.monthlyRevenue ?? null, item.row?.monthlyPlan ?? null)) }}</td>
+                  <td :style="{ color: changeColor(item.row?.monthlyChange) }"><span class="change-value"><v-icon v-if="changeIcon(item.row?.monthlyChange)" :icon="changeIcon(item.row?.monthlyChange)" size="15" />{{ signedMoney(item.row?.monthlyChange) }}</span></td>
                   <td>{{ money(item.row?.cumulativePlan) }}</td><td>{{ money(item.row?.cumulativeRevenue) }}</td>
                   <td :style="{ color: rateColor(rate(item.row?.cumulativeRevenue ?? null, item.row?.cumulativePlan ?? null)) }">{{ percent(rate(item.row?.cumulativeRevenue ?? null, item.row?.cumulativePlan ?? null)) }}</td>
                   <td>{{ money(item.row?.annualPlan) }}</td><td>{{ money(item.row?.cumulativeRevenue) }}</td>
                   <td :style="{ color: rateColor(rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null)) }">{{ percent(rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null)) }}</td>
+                  <td :style="{ color: annualGapColor(item.row?.remainingAnnual) }">{{ annualGap(item.row?.remainingAnnual) }}</td>
                 </tr>
-                <tr class="total-row"><td colspan="3">Tổng</td><td>{{ money(unitDetailTotal.monthlyPlan) }}</td><td>{{ money(unitDetailTotal.monthlyRevenue) }}</td><td>{{ percent(unitDetailTotal.monthlyRate) }}</td><td>{{ money(unitDetailTotal.cumulativePlan) }}</td><td>{{ money(unitDetailTotal.cumulativeRevenue) }}</td><td>{{ percent(unitDetailTotal.cumulativeRate) }}</td><td>{{ money(unitDetailTotal.annualPlan) }}</td><td>{{ money(unitDetailTotal.cumulativeRevenue) }}</td><td>{{ percent(unitDetailTotal.annualRate) }}</td></tr>
+                <tr class="total-row"><td colspan="3">Tổng</td><td>{{ money(unitDetailTotal.monthlyPlan) }}</td><td>{{ money(unitDetailTotal.monthlyRevenue) }}</td><td>{{ percent(unitDetailTotal.monthlyRate) }}</td><td :style="{ color: changeColor(unitDetailTotal.monthlyChange) }"><span class="change-value"><v-icon v-if="changeIcon(unitDetailTotal.monthlyChange)" :icon="changeIcon(unitDetailTotal.monthlyChange)" size="15" />{{ signedMoney(unitDetailTotal.monthlyChange) }}</span></td><td>{{ money(unitDetailTotal.cumulativePlan) }}</td><td>{{ money(unitDetailTotal.cumulativeRevenue) }}</td><td>{{ percent(unitDetailTotal.cumulativeRate) }}</td><td>{{ money(unitDetailTotal.annualPlan) }}</td><td>{{ money(unitDetailTotal.cumulativeRevenue) }}</td><td>{{ percent(unitDetailTotal.annualRate) }}</td><td :style="{ color: annualGapColor(unitDetailTotal.remainingAnnual) }">{{ annualGap(unitDetailTotal.remainingAnnual) }}</td></tr>
               </tbody>
             </v-table>
-            <v-table v-else class="report-table unit-table" density="compact" :style="{ '--unit-table-width': `${425 + visibleUnits.length * 164}px` }"><colgroup><col style="width:50px" /><col style="width:115px" /><col style="width:260px" /><col v-for="unit in visibleUnits" :key="unit.value" style="width:164px" /></colgroup><thead><tr><th>STT</th><th>Mã KPI</th><th>Tên KPI</th><th v-for="unit in visibleUnits" :key="unit.value">{{ unit.title.replace(/^Trung tâm Viễn thông\s*/i, '') }}</th></tr></thead><tbody>
-              <tr v-for="(kpi, index) in kpis" :key="kpi.code" class="kpi-selectable-row" :class="{ 'selected-kpi-row': kpi.code === selectedKpi }" tabindex="0" :aria-selected="kpi.code === selectedKpi" :aria-label="`Xem biểu đồ ${kpi.title}`" @click="selectKpiFromTable(kpi.code)" @keydown.enter.prevent="selectKpiFromTable(kpi.code)" @keydown.space.prevent="selectKpiFromTable(kpi.code)"><td>{{ index + 1 }}</td><td>{{ kpi.code }}</td><td>{{ kpi.title }}</td><td v-for="unit in visibleUnits" :key="unit.value"><template v-if="visibleUnitRows.find(row => row.unitCode === unit.value && row.kpi === kpi.code)" v-for="row in visibleUnitRows.filter(item => item.unitCode === unit.value && item.kpi === kpi.code)" :key="row.unitCode"><div class="unit-amount">{{ money(unitActual(row)) }}</div><div class="unit-plan">KH {{ money(unitPlan(row)) }} <span :style="{ color: rateColor(rate(unitActual(row), unitPlan(row))) }">· {{ percent(rate(unitActual(row), unitPlan(row))) }}</span></div></template><template v-else>—</template></td></tr>
-              <tr class="total-row"><td colspan="3">Tổng</td><td v-for="unit in visibleUnits" :key="unit.value"><div class="unit-amount">{{ money(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.actual)) }}</div><div class="unit-plan">KH {{ money(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.plan)) }} · {{ percent(rate(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.actual), sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.plan))) }}</div></td></tr>
+            <v-table v-else class="report-table unit-table" density="compact" :style="{ '--unit-table-width': `${425 + visibleUnits.length * 164}px` }"><colgroup><col style="width:50px" /><col style="width:115px" /><col style="width:260px" /><col v-for="unit in visibleUnits" :key="unit.value" style="width:164px" /></colgroup><thead><tr><th>STT</th><th>Mã KPI</th><th>Tên KPI</th><th v-for="unit in visibleUnits" :key="unit.value">{{ unit.title.replace(/^Trung tâm Viễn thông\s*/i, '') }}<small v-if="unitRankByCode(unit.value) != null" class="unit-rank-label">Hạng {{ unitRankByCode(unit.value) }}</small></th></tr></thead><tbody>
+              <tr v-for="(kpi, index) in kpis" :key="kpi.code" class="kpi-selectable-row" :class="{ 'selected-kpi-row': kpi.code === selectedKpi }" tabindex="0" :aria-selected="kpi.code === selectedKpi" :aria-label="`Xem biểu đồ ${kpi.title}`" @click="selectKpiFromTable(kpi.code)" @keydown.enter.prevent="selectKpiFromTable(kpi.code)" @keydown.space.prevent="selectKpiFromTable(kpi.code)"><td>{{ index + 1 }}</td><td>{{ kpi.code }}</td><td>{{ kpi.title }}</td><td v-for="unit in visibleUnits" :key="unit.value"><template v-if="visibleUnitRows.find(row => row.unitCode === unit.value && row.kpi === kpi.code)" v-for="row in visibleUnitRows.filter(item => item.unitCode === unit.value && item.kpi === kpi.code)" :key="row.unitCode"><div class="unit-amount">{{ money(unitActual(row)) }}</div><div class="unit-plan">KH {{ money(unitPlan(row)) }} <span :style="{ color: rateColor(rate(unitActual(row), unitPlan(row))) }">· {{ percent(rate(unitActual(row), unitPlan(row))) }}</span></div><div v-if="unitPeriod === 'monthly'" class="unit-extra" :style="{ color: changeColor(row.monthlyChange) }">So tháng trước <span class="change-value"><v-icon v-if="changeIcon(row.monthlyChange)" :icon="changeIcon(row.monthlyChange)" size="13" />{{ signedMoney(row.monthlyChange) }}</span></div><div v-if="unitPeriod === 'annual'" class="unit-extra" :style="{ color: annualGapColor(row.remainingAnnual) }">{{ annualGap(row.remainingAnnual) }}</div></template><template v-else>—</template></td></tr>
+              <tr class="total-row"><td colspan="3">Tổng</td><td v-for="unit in visibleUnits" :key="unit.value"><div class="unit-amount">{{ money(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.actual)) }}</div><div class="unit-plan">KH {{ money(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.plan)) }} · {{ percent(rate(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.actual), sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.plan))) }}</div><div v-if="unitPeriod === 'monthly'" class="unit-extra" :style="{ color: changeColor(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'monthlyChange')) }">So tháng trước <span class="change-value"><v-icon v-if="changeIcon(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'monthlyChange'))" :icon="changeIcon(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'monthlyChange'))" size="13" />{{ signedMoney(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'monthlyChange')) }}</span></div><div v-if="unitPeriod === 'annual'" class="unit-extra" :style="{ color: annualGapColor(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'remainingAnnual')) }">{{ annualGap(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'remainingAnnual')) }}</div></td></tr>
             </tbody></v-table>
           </section>
           <section class="report-section subscriber-section">
@@ -599,14 +629,14 @@ onMounted(async () => {
 .unit-table :deep(tbody tr.selected-kpi-row td:first-child){box-shadow:inset 4px 0 rgb(var(--v-theme-primary))}
 .unit-table :deep(tbody tr.selected-kpi-row td:nth-child(2)),.unit-table :deep(tbody tr.selected-kpi-row td:nth-child(3)){color:rgb(var(--v-theme-primary));font-weight:800}
 .unit-detail-table :deep(.v-table__wrapper){overflow-x:auto}
-.unit-detail-table :deep(table){width:100%;min-width:1465px;table-layout:fixed}
+.unit-detail-table :deep(table){width:100%;min-width:1705px;table-layout:fixed}
 .unit-detail-table :deep(thead tr:first-child th:nth-child(-n+3)){position:sticky;z-index:4;background:#086fb7!important}
 .unit-detail-table :deep(thead tr:first-child th:nth-child(1)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(1)){left:0}
 .unit-detail-table :deep(thead tr:first-child th:nth-child(2)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(2)){left:50px}
 .unit-detail-table :deep(thead tr:first-child th:nth-child(3)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(3)){left:165px;box-shadow:3px 0 6px rgba(25,50,70,.12)}
 .unit-detail-table :deep(thead tr:nth-child(2) th){background:#147bbd!important}
-.unit-detail-table :deep(thead tr:first-child th:nth-child(n+4)),.unit-detail-table :deep(thead tr:nth-child(2) th:nth-child(3n+1)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(3n+4)){border-left:2px solid rgba(var(--v-theme-primary),.2)}
-.unit-detail-table :deep(tbody tr.total-row td:nth-child(3n+2)){border-left:2px solid rgba(var(--v-theme-primary),.2)}
+.unit-detail-table :deep(thead tr:first-child th:nth-child(n+4)),.unit-detail-table :deep(thead tr:nth-child(2) th:nth-child(1)),.unit-detail-table :deep(thead tr:nth-child(2) th:nth-child(5)),.unit-detail-table :deep(thead tr:nth-child(2) th:nth-child(8)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(4)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(8)),.unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(11)){border-left:2px solid rgba(var(--v-theme-primary),.2)}
+.unit-detail-table :deep(tbody tr.total-row td:nth-child(2)),.unit-detail-table :deep(tbody tr.total-row td:nth-child(6)),.unit-detail-table :deep(tbody tr.total-row td:nth-child(9)){border-left:2px solid rgba(var(--v-theme-primary),.2)}
 .unit-detail-table :deep(tbody tr:not(.total-row) td:nth-child(-n+3)){position:sticky;z-index:2;background:rgb(var(--v-theme-surface))}
 .unit-detail-table :deep(tbody tr:nth-child(even):not(.selected-kpi-row):not(.total-row)){background:transparent!important}
 .unit-detail-table :deep(tbody tr.total-row td){background:color-mix(in srgb,rgb(var(--v-theme-on-surface)) 7%,rgb(var(--v-theme-surface)))!important}
@@ -615,6 +645,20 @@ onMounted(async () => {
 .unit-detail-table :deep(tbody tr.selected-kpi-row td:first-child){box-shadow:inset 4px 0 rgb(var(--v-theme-primary))}
 .unit-detail-table :deep(tbody tr.selected-kpi-row td:nth-child(2)),.unit-detail-table :deep(tbody tr.selected-kpi-row td:nth-child(3)){color:rgb(var(--v-theme-primary));font-weight:800}
 .unit-chart-card{scroll-margin-top:76px}
+.province-table :deep(.v-table__wrapper){overflow-x:auto}
+.province-table :deep(table){width:100%;min-width:1760px;table-layout:fixed}
+.province-table :deep(thead tr:nth-child(2) th){background:#147bbd!important}
+.province-table :deep(thead tr:first-child th:nth-child(-n+3)){position:sticky;z-index:4;background:#086fb7!important}
+.province-table :deep(thead tr:first-child th:nth-child(1)),.province-table :deep(tbody tr:not(.total-row) td:nth-child(1)){left:0}
+.province-table :deep(thead tr:first-child th:nth-child(2)),.province-table :deep(tbody tr:not(.total-row) td:nth-child(2)){left:50px}
+.province-table :deep(thead tr:first-child th:nth-child(3)),.province-table :deep(tbody tr:not(.total-row) td:nth-child(3)){left:160px;box-shadow:3px 0 6px rgba(25,50,70,.12)}
+.province-table :deep(tbody tr:not(.total-row) td:nth-child(-n+3)){position:sticky;z-index:2;background:rgb(var(--v-theme-surface))}
+.province-table :deep(tbody tr:nth-child(even):not(.total-row) td:nth-child(-n+3)){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 3.5%,rgb(var(--v-theme-surface)))}
+.province-table :deep(tbody tr.total-row td:first-child){position:sticky;left:0;z-index:3;background:color-mix(in srgb,rgb(var(--v-theme-primary)) 11%,rgb(var(--v-theme-surface)))!important;box-shadow:3px 0 6px rgba(25,50,70,.12)}
+.province-table :deep(thead tr:first-child th:nth-child(n+4)),.province-table :deep(thead tr:nth-child(2) th:nth-child(1)),.province-table :deep(thead tr:nth-child(2) th:nth-child(5)),.province-table :deep(thead tr:nth-child(2) th:nth-child(8)),.province-table :deep(tbody tr:not(.total-row) td:nth-child(4)),.province-table :deep(tbody tr:not(.total-row) td:nth-child(8)),.province-table :deep(tbody tr:not(.total-row) td:nth-child(11)),.province-table :deep(tbody tr.total-row td:nth-child(2)),.province-table :deep(tbody tr.total-row td:nth-child(6)),.province-table :deep(tbody tr.total-row td:nth-child(9)){border-left:2px solid rgba(var(--v-theme-primary),.2)}
+.unit-extra{margin-top:3px;font-size:10px;font-weight:600;opacity:.9}
+.change-value{display:inline-flex;align-items:center;justify-content:flex-end;gap:2px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.unit-rank-label{display:block;color:#e4f2ff;font-size:10px;font-weight:600;line-height:1.4}
 .unit-table :deep(tbody tr.kpi-selectable-row),.unit-detail-table :deep(tbody tr.kpi-selectable-row){cursor:pointer}
 .unit-table :deep(tbody tr.kpi-selectable-row:not(.selected-kpi-row):hover td),.unit-detail-table :deep(tbody tr.kpi-selectable-row:not(.selected-kpi-row):hover td){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 7%,rgb(var(--v-theme-surface)))!important}
 .unit-table :deep(tbody tr.kpi-selectable-row:focus-visible),.unit-detail-table :deep(tbody tr.kpi-selectable-row:focus-visible){outline:2px solid rgb(var(--v-theme-primary));outline-offset:-2px}

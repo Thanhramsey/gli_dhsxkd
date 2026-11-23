@@ -133,6 +133,10 @@ export interface KpiV2Row {
   cumulativePlan: number | null;
   annualPlan: number | null;
   rank: number | null;
+  cumulativeRank: number | null;
+  annualRank: number | null;
+  monthlyChange: number | null;
+  remainingAnnual: number | null;
 }
 
 export interface KpiV2TrendRow {
@@ -142,6 +146,8 @@ export interface KpiV2TrendRow {
   cumulativeRevenue: number | null;
   cumulativePlan: number | null;
   annualPlan: number | null;
+  monthlyChange: number | null;
+  remainingAnnual: number | null;
 }
 
 export interface KpiV2SubscriberRow {
@@ -177,7 +183,8 @@ export class KpiService {
     const snapshot = month.replace('-', '');
     const rows = await this.oracleService.executeQuery<Record<string, unknown>>(
       `SELECT KPI, MA_DV, TEN_DV, BIEUDO, DOANH_THU, KE_HOACH_THANG,
-              DOANH_THU_LK, KE_HOACH_LK_THANG, KE_HOACH_LK_NAM, XEP_HANG
+              DOANH_THU_LK, KE_HOACH_LK_THANG, KE_HOACH_LK_NAM, XEP_HANG,
+              XEP_HANG_LK_THANG, XEP_HANG_LK_NAM, TANG_GIAM, CON_LAI_NAM
          FROM (
            SELECT t.*, ROW_NUMBER() OVER (
              PARTITION BY KPI, MA_DV ORDER BY KY_CUOC DESC
@@ -209,6 +216,10 @@ export class KpiService {
         cumulativePlan: number(row.KE_HOACH_LK_THANG),
         annualPlan: number(row.KE_HOACH_LK_NAM),
         rank: number(row.XEP_HANG),
+        cumulativeRank: number(row.XEP_HANG_LK_THANG),
+        annualRank: number(row.XEP_HANG_LK_NAM),
+        monthlyChange: number(row.TANG_GIAM),
+        remainingAnnual: number(row.CON_LAI_NAM),
       })),
     };
   }
@@ -257,10 +268,11 @@ export class KpiService {
     const firstMonth = `${reportMonth.slice(0, 4)}01`;
     const result = await this.oracleService.executeQuery<Record<string, unknown>>(
       `SELECT REPORT_MONTH, DOANH_THU, KE_HOACH_THANG, DOANH_THU_LK,
-              KE_HOACH_LK_THANG, KE_HOACH_LK_NAM
+              KE_HOACH_LK_THANG, KE_HOACH_LK_NAM, TANG_GIAM, CON_LAI_NAM
          FROM (
            SELECT TRIM(THANG) AS REPORT_MONTH, DOANH_THU, KE_HOACH_THANG,
                   DOANH_THU_LK, KE_HOACH_LK_THANG, KE_HOACH_LK_NAM,
+                  TANG_GIAM, CON_LAI_NAM,
                   ROW_NUMBER() OVER (
                     PARTITION BY TRIM(THANG)
                     ORDER BY TRIM(THANG_DULIEU) DESC, KY_CUOC DESC
@@ -300,6 +312,8 @@ export class KpiService {
           cumulativeRevenue: number(row?.DOANH_THU_LK),
           cumulativePlan: number(row?.KE_HOACH_LK_THANG),
           annualPlan: number(row?.KE_HOACH_LK_NAM),
+          monthlyChange: number(row?.TANG_GIAM),
+          remainingAnnual: number(row?.CON_LAI_NAM),
         };
       }),
     };
