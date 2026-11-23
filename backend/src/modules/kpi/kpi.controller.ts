@@ -5,6 +5,7 @@ import { KpiQueryDto } from './kpi-query.dto.js';
 import { KpiPscQueryDto } from './kpi-psc-query.dto.js';
 import { KpiTrendQueryDto } from './kpi-trend-query.dto.js';
 import { KpiV2TrendQueryDto } from './kpi-v2-trend-query.dto.js';
+import { KpiV2GroupQueryDto, KpiV2ReportQueryDto } from './kpi-v2-group-query.dto.js';
 import { KpiService } from './kpi.service.js';
 
 @ApiTags('kpi')
@@ -16,14 +17,14 @@ export class KpiController {
 
   @Get('v2-months')
   @ApiOperation({ summary: 'Các tháng có dữ liệu giao ban v2' })
-  v2Months() {
-    return this.service.v2Months();
+  v2Months(@Query() query: KpiV2GroupQueryDto) {
+    return this.service.v2Months(query.group);
   }
 
   @Post('v2-report')
   @ApiOperation({ summary: 'Các KPI doanh thu cấp 3 từ TONGHOP_KPI_ALL theo tháng' })
-  v2Report(@Body() input: KpiQueryDto) {
-    return this.service.v2Report(input.month);
+  v2Report(@Body() input: KpiV2ReportQueryDto) {
+    return this.service.v2Report(input.month, input.group);
   }
 
   @Post('v2-subscriber-report')

@@ -4,6 +4,7 @@ import { OracleService } from '../../database/oracle.service.js';
 import { KpiQueryDto } from './kpi-query.dto.js';
 import { KpiPscQueryDto } from './kpi-psc-query.dto.js';
 import { KpiTrendQueryDto } from './kpi-trend-query.dto.js';
+import type { KpiV2Group } from './kpi-v2-group-query.dto.js';
 
 const PACKAGE_NAME = 'NBH_CDS_NEW.MA_KPI_GLI_TONG';
 const PROCEDURE_NAME = 'TONG_HOP_KPI';
@@ -167,20 +168,23 @@ export interface KpiV2SubscriberRow {
 export class KpiService {
   constructor(private readonly oracleService: OracleService) {}
 
-  async v2Months(): Promise<{ months: string[] }> {
+  async v2Months(group: KpiV2Group = 'actual'): Promise<{ months: string[] }> {
+    const kpiPattern = group === 'maintenance' ? '_C3_DT$' : '_C3$';
     const rows = await this.oracleService.executeQuery<{ REPORT_MONTH: unknown }>(
       `SELECT DISTINCT TRIM(THANG_DULIEU) AS REPORT_MONTH
          FROM NBH_CDS_NEW.TONGHOP_KPI_ALL
-        WHERE REGEXP_LIKE(TRIM(KPI), '_C3$')
+        WHERE REGEXP_LIKE(TRIM(KPI), :kpiPattern)
           AND REGEXP_LIKE(TRIM(THANG_DULIEU), '^20[0-9]{4}$')
           AND TRIM(THANG) = TRIM(THANG_DULIEU)
         ORDER BY REPORT_MONTH DESC`,
+      { kpiPattern: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: kpiPattern } },
     );
     return { months: rows.map(row => String(row.REPORT_MONTH).trim()) };
   }
 
-  async v2Report(month: string): Promise<{ month: string; rows: KpiV2Row[] }> {
+  async v2Report(month: string, group: KpiV2Group = 'actual'): Promise<{ month: string; rows: KpiV2Row[] }> {
     const snapshot = month.replace('-', '');
+    const kpiPattern = group === 'maintenance' ? '_C3_DT$' : '_C3$';
     const rows = await this.oracleService.executeQuery<Record<string, unknown>>(
       `SELECT KPI, MA_DV, TEN_DV, BIEUDO, DOANH_THU, KE_HOACH_THANG,
               DOANH_THU_LK, KE_HOACH_LK_THANG, KE_HOACH_LK_NAM, XEP_HANG,
@@ -190,13 +194,16 @@ export class KpiService {
              PARTITION BY KPI, MA_DV ORDER BY KY_CUOC DESC
            ) AS RN
              FROM NBH_CDS_NEW.TONGHOP_KPI_ALL t
-            WHERE REGEXP_LIKE(TRIM(KPI), '_C3$')
+            WHERE REGEXP_LIKE(TRIM(KPI), :kpiPattern)
               AND TRIM(THANG_DULIEU) = :reportMonth
               AND TRIM(THANG) = :reportMonth
          )
         WHERE RN = 1
         ORDER BY KPI, MA_DV`,
-      { reportMonth: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: snapshot } },
+      {
+        reportMonth: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: snapshot },
+        kpiPattern: { dir: oracledb.BIND_IN, type: oracledb.STRING, val: kpiPattern },
+      },
     );
     const number = (value: unknown): number | null => {
       if (value == null || String(value).trim() === '') return null;

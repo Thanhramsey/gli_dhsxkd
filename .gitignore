@@ -5,6 +5,8 @@ node_modules/
 dist/
 build/
 coverage/
+/outputs/
+/scripts/
 *.tsbuildinfo
 
 # Environment files and secrets

@@ -4,8 +4,9 @@ import VChart from 'vue-echarts'
 import { useTheme } from 'vuetify'
 import { kpiApi } from '../api/kpi.api'
 import { getAuthErrorMessage } from '../api/auth.api'
-import type { KpiV2Code, KpiV2Row, KpiV2TrendRow, KpiV2SubscriberRow } from '../types/kpi'
+import type { KpiV2Code, KpiV2Group, KpiV2Row, KpiV2TrendRow, KpiV2SubscriberRow } from '../types/kpi'
 import { adaptChartOptionForTheme } from '../utils/chart-theme'
+import KpiUnitMapDialog from '../components/KpiUnitMapDialog.vue'
 import '../plugins/echarts'
 
 type AmountKey = 'monthlyRevenue' | 'monthlyPlan' | 'cumulativeRevenue' | 'cumulativePlan' | 'annualPlan' | 'monthlyChange' | 'remainingAnnual'
@@ -33,6 +34,8 @@ const pickerMonth = ref(new Date().getMonth())
 const pickerYear = ref(new Date().getFullYear())
 const pickerViewMode = ref<'month' | 'months' | 'year'>('months')
 const rows = ref<KpiV2Row[]>([])
+const reportGroup = ref<KpiV2Group>('actual')
+const reportGroupLabel = computed(() => reportGroup.value === 'maintenance' ? 'doanh thu duy trì' : 'doanh thu thực hiện')
 const subscriberRows = ref<KpiV2SubscriberRow[]>([])
 const selectedSubscriberIndicator = ref('PTM')
 const subscriberLoading = ref(false)
@@ -40,6 +43,7 @@ const subscriberError = ref('')
 const scope = ref<'province' | 'unit'>('province')
 const unitCode = ref<string | null>(null)
 const selectedKpi = ref<KpiV2Code>('')
+const mapDialogOpen = ref(false)
 const unitPeriod = ref<UnitPeriod>('monthly')
 const trendRows = ref<KpiV2TrendRow[]>([])
 const trendLoading = ref(false)
@@ -410,14 +414,15 @@ async function load() {
   if (!month.value) return
   const version = ++loadVersion
   const queryMonth = month.value
+  const queryGroup = reportGroup.value
   loading.value = true
-  subscriberLoading.value = true
+  subscriberLoading.value = queryGroup === 'actual'
   error.value = ''
   subscriberError.value = ''
   try {
     const [revenueResult, subscriberResult] = await Promise.allSettled([
-      kpiApi.v2Report(queryMonth),
-      kpiApi.v2SubscriberReport(queryMonth),
+      kpiApi.v2Report(queryMonth, queryGroup),
+      queryGroup === 'actual' ? kpiApi.v2SubscriberReport(queryMonth) : Promise.resolve({ rows: [] as KpiV2SubscriberRow[] }),
     ])
     if (version !== loadVersion) return
     if (revenueResult.status === 'fulfilled') {
@@ -442,17 +447,52 @@ async function load() {
   }
 }
 
+async function changeReportGroup(next: KpiV2Group) {
+  if (next === reportGroup.value) return
+  const version = ++loadVersion
+  reportGroup.value = next
+  selectedKpi.value = ''
+  unitCode.value = null
+  rows.value = []
+  subscriberRows.value = []
+  months.value = []
+  loaded.value = false
+  loading.value = true
+  subscriberLoading.value = false
+  error.value = ''
+  subscriberError.value = ''
+  monthMenuOpen.value = false
+  try {
+    const availableMonths = await kpiApi.v2Months(next)
+    if (version !== loadVersion) return
+    months.value = availableMonths
+    const currentMonth = month.value.replace('-', '')
+    if (!availableMonths.includes(currentMonth)) {
+      month.value = availableMonths[0] ? `${availableMonths[0].slice(0, 4)}-${availableMonths[0].slice(4)}` : ''
+    }
+    if (month.value) await load()
+    else loaded.value = true
+  } catch (cause) {
+    if (version === loadVersion) error.value = getAuthErrorMessage(cause)
+  } finally {
+    if (version === loadVersion) loading.value = false
+  }
+}
+
 onMounted(async () => {
+  const version = loadVersion
   loading.value = true
   try {
-    months.value = await kpiApi.v2Months()
+    const availableMonths = await kpiApi.v2Months(reportGroup.value)
+    if (version !== loadVersion) return
+    months.value = availableMonths
     month.value = months.value[0] ? `${months.value[0].slice(0, 4)}-${months.value[0].slice(4)}` : ''
     if (month.value) await load()
     else loaded.value = true
   } catch (cause) {
-    error.value = getAuthErrorMessage(cause)
+    if (version === loadVersion) error.value = getAuthErrorMessage(cause)
   } finally {
-    loading.value = false
+    if (version === loadVersion) loading.value = false
   }
 })
 </script>
@@ -461,6 +501,10 @@ onMounted(async () => {
   <v-container class="giao-ban-v2" fluid>
     <v-card class="report-shell" elevation="0">
       <header class="report-heading"><v-icon icon="mdi-chart-bar" size="26" /><h1>DỮ LIỆU GIAO BAN</h1></header>
+      <v-tabs :model-value="reportGroup" class="report-group-tabs" color="primary" @update:model-value="changeReportGroup">
+        <v-tab value="actual">Doanh thu thực hiện</v-tab>
+        <v-tab value="maintenance">Doanh thu duy trì</v-tab>
+      </v-tabs>
       <div class="filters">
         <v-menu v-model="monthMenuOpen" :close-on-content-click="false">
           <template #activator="{ props: activatorProps }"><v-text-field v-bind="activatorProps" :model-value="pickerLabel" label="Tháng báo cáo" prepend-inner-icon="mdi-calendar-month-outline" variant="outlined" density="compact" hide-details readonly :disabled="!months.length" /></template>
@@ -472,14 +516,14 @@ onMounted(async () => {
         <v-btn color="primary" prepend-icon="mdi-database-search-outline" :loading="loading" :disabled="!month" @click="load">Lấy số liệu</v-btn>
       </div>
       <v-alert v-if="error" class="mx-5 mb-4" type="error" variant="tonal">{{ error }}</v-alert>
-      <v-alert v-if="loaded && !rows.length && !error" class="mx-5 mb-4" type="info" variant="tonal">Chưa có dữ liệu cho {{ monthLabel || 'tháng đã chọn' }}.</v-alert>
+      <v-alert v-if="loaded && !rows.length && !error" class="mx-5 mb-4" type="info" variant="tonal">Chưa có dữ liệu {{ reportGroupLabel }} cho {{ monthLabel || 'tháng đã chọn' }}.</v-alert>
       <template v-if="loaded && rows.length && !error">
         <v-alert v-if="missingProvinceKpis.length" class="mx-5 mb-4" type="warning" variant="tonal" density="compact">API chưa trả dữ liệu {{ missingProvinceKpis.map(kpi => kpi.label).join(', ') }} cho {{ monthLabel }}. Các biểu đồ và dòng tổng chỉ tính trên KPI đã nhận được.</v-alert>
         <template v-if="scope === 'province'">
           <div class="province-charts">
             <v-card class="chart-card share-card" elevation="0">
-              <h2>Tỷ trọng doanh thu {{ monthLabel }}</h2>
-              <div class="pie-visual"><VChart class="pie-chart" :option="shareOption" autoresize /><div class="pie-center"><span>Tổng doanh thu</span><strong>{{ billions(provinceTotal.monthlyRevenue) }}</strong></div></div>
+              <h2>Tỷ trọng {{ reportGroupLabel }} {{ monthLabel }}</h2>
+              <div class="pie-visual"><VChart class="pie-chart" :option="shareOption" autoresize /><div class="pie-center"><span>Tổng {{ reportGroupLabel }}</span><strong>{{ billions(provinceTotal.monthlyRevenue) }}</strong></div></div>
               <div class="share-list" aria-label="Cơ cấu doanh thu theo dịch vụ">
                 <div v-for="item in provinceShares" :key="item.code" class="share-entry">
                   <i class="share-swatch" :style="{ backgroundColor: item.color }" />
@@ -488,10 +532,10 @@ onMounted(async () => {
                 </div>
               </div>
             </v-card>
-            <v-card class="chart-card" elevation="0"><h2>Tiến độ doanh thu năm {{ month.slice(0, 4) }}</h2><p>Thực hiện lũy kế so với kế hoạch năm · {{ kpis.length }} chỉ tiêu</p><VChart class="progress-chart" :style="{ height: `${Math.max(305, kpis.length * 55 + 90)}px` }" :option="annualProgressOption" autoresize /></v-card>
+            <v-card class="chart-card" elevation="0"><h2>Tiến độ {{ reportGroupLabel }} năm {{ month.slice(0, 4) }}</h2><p>Thực hiện lũy kế so với kế hoạch năm · {{ kpis.length }} chỉ tiêu</p><VChart v-if="provinceRows.some(row => row.annualPlan != null && row.annualPlan > 0)" class="progress-chart" :style="{ height: `${Math.max(305, kpis.length * 55 + 90)}px` }" :option="annualProgressOption" autoresize /><v-alert v-else class="mt-8" type="info" variant="tonal" density="compact">Chưa có kế hoạch năm cho nhóm chỉ tiêu này.</v-alert></v-card>
           </div>
           <section class="report-section">
-            <div class="section-heading"><h2>1. BÁO CÁO DOANH THU TOÀN TỈNH</h2><small>{{ monthLabel }} · đơn vị: triệu đồng</small></div>
+            <div class="section-heading"><h2>1. BÁO CÁO {{ reportGroupLabel.toLocaleUpperCase('vi-VN') }} TOÀN TỈNH</h2><small>{{ monthLabel }} · đơn vị: triệu đồng</small></div>
             <v-table class="report-table province-table" density="compact">
               <colgroup><col style="width:50px" /><col style="width:110px" /><col style="width:280px" /><col v-for="n in 10" :key="n" style="width:132px" /></colgroup>
               <thead>
@@ -502,7 +546,7 @@ onMounted(async () => {
               <tr class="total-row"><td colspan="3">Tổng</td><td>{{ money(provinceTotal.monthlyPlan) }}</td><td>{{ money(provinceTotal.monthlyRevenue) }}</td><td :style="{ color: changeColor(provinceTotal.monthlyChange) }"><span class="change-value"><v-icon v-if="changeIcon(provinceTotal.monthlyChange)" :icon="changeIcon(provinceTotal.monthlyChange)" size="15" />{{ signedMoney(provinceTotal.monthlyChange) }}</span></td><td>{{ percent(provinceTotal.monthlyRate) }}</td><td>{{ money(provinceTotal.cumulativePlan) }}</td><td>{{ money(provinceTotal.cumulativeRevenue) }}</td><td>{{ percent(provinceTotal.cumulativeRate) }}</td><td>{{ money(provinceTotal.annualPlan) }}</td><td :style="{ color: annualGapColor(provinceTotal.remainingAnnual) }">{{ annualGap(provinceTotal.remainingAnnual) }}</td><td>{{ percent(provinceTotal.annualRate) }}</td></tr>
             </tbody></v-table>
           </section>
-          <section class="report-section subscriber-section">
+          <section v-if="reportGroup === 'actual'" class="report-section subscriber-section">
             <div class="section-heading"><h2>2. BÁO CÁO SẢN LƯỢNG THUÊ BAO TOÀN TỈNH</h2><small>{{ monthLabel }} · đơn vị: thuê bao</small></div>
             <v-progress-linear v-if="subscriberLoading" indeterminate color="primary" />
             <v-alert v-else-if="subscriberError" type="error" variant="tonal" density="compact">{{ subscriberError }}</v-alert>
@@ -524,7 +568,7 @@ onMounted(async () => {
             <div class="unit-period"><span>Kỳ so sánh</span><v-btn-toggle v-model="unitPeriod" class="unit-period-toggle" mandatory color="primary" density="comfortable" variant="text"><v-btn value="monthly">Trong tháng</v-btn><v-btn value="cumulative">Lũy kế</v-btn><v-btn value="annual">Kế hoạch năm</v-btn></v-btn-toggle></div>
           </div>
           <v-card id="v2-unit-chart" class="unit-chart-card" elevation="0">
-            <h2>{{ unitCode ? 'Diễn biến doanh thu' : 'Tỷ lệ hoàn thành' }}: {{ kpis.find(kpi => kpi.code === selectedKpi)?.title }}</h2>
+            <div class="unit-chart-heading"><h2>{{ unitCode ? `Diễn biến ${reportGroupLabel}` : 'Tỷ lệ hoàn thành' }}: {{ kpis.find(kpi => kpi.code === selectedKpi)?.title }}</h2><v-btn color="primary" variant="tonal" size="small" prepend-icon="mdi-map-marker-radius-outline" @click="mapDialogOpen = true">Xem bản đồ</v-btn></div>
             <p v-if="unitCode">{{ selectedUnitName }} · tháng 1–{{ Number(month.slice(5)) }}/{{ month.slice(0, 4) }} · {{ unitPeriodFields.label }} so với {{ unitPeriodFields.planLabel.toLowerCase() }}</p>
             <p v-else>{{ monthLabel }} · {{ unitPeriodFields.label }} so với {{ unitPeriodFields.planLabel.toLowerCase() }} · {{ selectedRows.length }}/{{ unitOptions.length }} địa bàn có số liệu</p>
             <template v-if="unitCode">
@@ -542,7 +586,7 @@ onMounted(async () => {
             </template>
             <v-alert v-else class="ma-4" type="info" variant="tonal">API chưa trả dữ liệu {{ kpis.find(kpi => kpi.code === selectedKpi)?.label }} cho địa bàn đã chọn.</v-alert>
           </v-card>
-          <section class="report-section"><div class="section-heading"><h2>1. BÁO CÁO DOANH THU ĐỊA BÀN CẤP 2</h2><small>{{ monthLabel }} · {{ unitCode ? selectedUnitName : `${unitPeriodFields.label} / ${unitPeriodFields.planLabel}` }} · triệu đồng</small></div>
+          <section class="report-section"><div class="section-heading"><h2>1. BÁO CÁO {{ reportGroupLabel.toLocaleUpperCase('vi-VN') }} ĐỊA BÀN CẤP 2</h2><small>{{ monthLabel }} · {{ unitCode ? selectedUnitName : `${unitPeriodFields.label} / ${unitPeriodFields.planLabel}` }} · triệu đồng</small></div>
             <v-table v-if="unitCode" class="report-table unit-detail-table" density="compact">
               <colgroup><col style="width:50px" /><col style="width:115px" /><col style="width:220px" /><col v-for="n in 11" :key="n" style="width:120px" /></colgroup>
               <thead>
@@ -569,7 +613,7 @@ onMounted(async () => {
               <tr class="total-row"><td colspan="3">Tổng</td><td v-for="unit in visibleUnits" :key="unit.value"><div class="unit-amount">{{ money(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.actual)) }}</div><div class="unit-plan">KH {{ money(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.plan)) }} · {{ percent(rate(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.actual), sum(visibleUnitRows.filter(row => row.unitCode === unit.value), unitPeriodFields.plan))) }}</div><div v-if="unitPeriod === 'monthly'" class="unit-extra" :style="{ color: changeColor(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'monthlyChange')) }">So tháng trước <span class="change-value"><v-icon v-if="changeIcon(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'monthlyChange'))" :icon="changeIcon(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'monthlyChange'))" size="13" />{{ signedMoney(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'monthlyChange')) }}</span></div><div v-if="unitPeriod === 'annual'" class="unit-extra" :style="{ color: annualGapColor(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'remainingAnnual')) }">{{ annualGap(sum(visibleUnitRows.filter(row => row.unitCode === unit.value), 'remainingAnnual')) }}</div></td></tr>
             </tbody></v-table>
           </section>
-          <section class="report-section subscriber-section">
+          <section v-if="reportGroup === 'actual'" class="report-section subscriber-section">
             <div class="section-heading"><h2>2. BÁO CÁO SẢN LƯỢNG THUÊ BAO ĐỊA BÀN CẤP 2</h2><div class="subscriber-heading-actions"><small>{{ monthLabel }} · {{ unitCode ? selectedUnitName : 'So sánh các trung tâm' }} · thuê bao</small><v-btn v-if="unitCode" color="primary" variant="tonal" size="small" prepend-icon="mdi-arrow-left" @click="unitCode = null">Xem tất cả trung tâm</v-btn></div></div>
             <v-progress-linear v-if="subscriberLoading" indeterminate color="primary" />
             <v-alert v-else-if="subscriberError" type="error" variant="tonal" density="compact">{{ subscriberError }}</v-alert>
@@ -605,10 +649,18 @@ onMounted(async () => {
         <!-- Nguồn TONGHOP_KPI_ALL chưa có dữ liệu so sánh cùng kỳ. -->
       </template>
     </v-card>
+    <KpiUnitMapDialog v-model="mapDialogOpen" :rows="unitRows" :group="reportGroup" :months="months" :month="month" :selected-kpi="selectedKpi" :period="unitPeriod" :initial-unit-code="unitCode" />
   </v-container>
 </template>
 
 <style scoped>
+.unit-chart-heading{position:relative;min-height:36px;padding:4px 140px}.unit-chart-heading h2{text-align:center}.unit-chart-heading :deep(.v-btn){position:absolute;right:0;top:0}@media(max-width:800px){.unit-chart-heading{padding:4px 0}.unit-chart-heading :deep(.v-btn){position:static;display:flex;margin:10px auto 0}}
+.report-group-tabs{padding:0 20px;border-bottom:1px solid rgba(var(--v-border-color),.18);background:color-mix(in srgb,rgb(var(--v-theme-primary)) 2%,rgb(var(--v-theme-surface)));--v-tabs-height:50px}
+.report-group-tabs :deep(.v-tab){min-width:0;padding:0 20px;color:rgba(var(--v-theme-on-surface),.72)!important;font-size:14px;font-weight:650;letter-spacing:0;text-transform:none;transition:background-color .18s,color .18s}
+.report-group-tabs :deep(.v-tab--selected){background:rgba(var(--v-theme-primary),.07);color:rgb(var(--v-theme-primary))!important;font-weight:750}
+.report-group-tabs :deep(.v-tab:not(.v-tab--selected):hover){background:rgba(var(--v-theme-primary),.045);color:rgb(var(--v-theme-primary))!important}
+.report-group-tabs :deep(.v-tab__slider){height:3px;border-radius:3px 3px 0 0}
+@media(max-width:650px){.report-group-tabs{padding:0 12px}.report-group-tabs :deep(.v-tab){flex:1;padding:0 8px;font-size:12px}}
 .giao-ban-v2{max-width:1840px;margin:0 auto;padding:18px 22px 48px;color:rgb(var(--v-theme-on-surface))}.report-shell{background:rgb(var(--v-theme-surface));border-radius:10px;overflow:hidden;box-shadow:0 3px 18px rgba(26,62,87,.08)!important}.report-heading{display:flex;align-items:center;gap:8px;padding:18px 20px 12px;border-bottom:1px solid rgba(var(--v-border-color),.18);color:rgb(var(--v-theme-primary))}.report-heading h1{font-size:22px;font-weight:800;letter-spacing:.055em}.filters{display:flex;align-items:center;gap:12px;padding:18px 20px 20px;flex-wrap:wrap}.filters :deep(.v-input){flex:1 1 210px;max-width:290px}.filters :deep(.v-btn){min-height:42px}.giao-ban-v2 :deep(.v-btn){text-transform:none;letter-spacing:0}.province-charts{display:grid;grid-template-columns:minmax(300px,1fr) minmax(0,2fr);gap:16px;padding:0 20px 18px}.chart-card,.unit-chart-card{border:1px solid rgba(var(--v-border-color),.22);border-radius:10px;background:rgb(var(--v-theme-surface));box-shadow:0 3px 12px rgba(29,61,83,.06)!important}.chart-card{min-height:310px;padding:15px 16px}.chart-card h2,.unit-chart-card h2{font-size:16px;text-align:center}.chart-card p,.unit-chart-card p{font-size:12px;text-align:center;opacity:.7;margin-top:5px}.pie-chart,.progress-chart{height:255px;width:100%}.report-section{padding:0 20px 22px}.section-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:8px 0 10px}.section-heading h2{font-size:19px;font-weight:800;color:#d52d31}.section-heading small{font-size:12px;opacity:.7}.report-table{border:1px solid rgba(var(--v-border-color),.22);border-radius:8px;overflow:auto}.report-table :deep(table){min-width:1180px;border-collapse:separate;border-spacing:0}.report-table :deep(th){background:#086fb7!important;color:#fff!important;font-weight:700!important;text-align:center!important;white-space:nowrap;padding:12px 10px!important;font-size:12px!important;border-right:1px solid #ffffff3d}.report-table :deep(td){padding:10px!important;font-size:12px;white-space:nowrap;text-align:right;border-bottom:1px solid rgba(var(--v-border-color),.14)}.report-table :deep(td:nth-child(-n+3)){text-align:left}.report-table :deep(td:nth-child(3)){font-weight:600}.report-table :deep(tbody tr:nth-child(even)){background:rgba(var(--v-theme-primary),.035)}.report-table :deep(.total-row){background:color-mix(in srgb,rgb(var(--v-theme-primary)) 11%,rgb(var(--v-theme-surface)))!important;font-weight:800}.report-table :deep(.total-row td:first-child){text-align:left}.kpi-picker{padding:0 20px 14px}.kpi-picker :deep(.v-input){max-width:520px}.unit-chart-card{margin:0 20px 18px;padding:25px 14px 12px}.unit-chart-scroll{overflow-x:auto;scrollbar-width:thin}.unit-chart{height:430px;width:100%}.unit-table :deep(table){min-width:max-content}.unit-table :deep(th:nth-child(3)),.unit-table :deep(td:nth-child(3)){min-width:260px}.unit-table :deep(th:nth-child(n+4)),.unit-table :deep(td:nth-child(n+4)){min-width:115px}.source-note{margin:0;padding:0 20px 20px;font-size:12px;opacity:.7}@media(max-width:1000px){.province-charts{grid-template-columns:1fr}.filters :deep(.v-input){max-width:none}}@media(max-width:650px){.giao-ban-v2{padding:10px}.report-heading h1{font-size:17px}.filters,.province-charts,.report-section{padding-inline:12px}.filters :deep(.v-input),.filters :deep(.v-btn){width:100%}.section-heading{display:block}.section-heading small{display:block;margin-top:4px}}
 .unit-legend{display:flex;justify-content:center;align-items:center;gap:18px;flex-wrap:wrap;margin:10px 0 2px;font-size:12px}.unit-legend span{display:inline-flex;align-items:center;gap:6px}.legend-bar{display:inline-block;width:17px;height:11px;border-radius:3px}.legend-line{display:inline-block;width:20px;height:0;border-top:3px solid;position:relative}.legend-line::after{content:'';position:absolute;left:8px;top:-5px;width:5px;height:5px;border-radius:50%;background:currentColor}
 .report-table :deep(.total-row td:not(:first-child)){text-align:right}

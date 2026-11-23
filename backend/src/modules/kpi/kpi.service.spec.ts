@@ -27,8 +27,8 @@ describe('KpiService.v2Report', () => {
     const result = await service.v2Report('2026-10');
 
     expect(executeQuery).toHaveBeenCalledWith(
-      expect.stringMatching(/XEP_HANG_LK_THANG, XEP_HANG_LK_NAM, TANG_GIAM, CON_LAI_NAM[\s\S]*FROM NBH_CDS_NEW\.TONGHOP_KPI_ALL[\s\S]*REGEXP_LIKE\(TRIM\(KPI\), '_C3\$'\)/),
-      { reportMonth: expect.objectContaining({ val: '202610' }) },
+      expect.stringMatching(/XEP_HANG_LK_THANG, XEP_HANG_LK_NAM, TANG_GIAM, CON_LAI_NAM[\s\S]*FROM NBH_CDS_NEW\.TONGHOP_KPI_ALL[\s\S]*REGEXP_LIKE\(TRIM\(KPI\), :kpiPattern\)/),
+      { reportMonth: expect.objectContaining({ val: '202610' }), kpiPattern: expect.objectContaining({ val: '_C3$' }) },
     );
     expect(result).toEqual({ month: '2026-10', rows: [expect.objectContaining({
       kpi: 'F1.FIBER_C3', unitCode: '237', monthlyRevenue: 33_000_000_000,
@@ -47,7 +47,30 @@ describe('KpiService.v2Report', () => {
     const executeQuery = vi.fn().mockResolvedValue([{ REPORT_MONTH: '202611' }]);
     const service = new KpiService({ executeQuery } as unknown as OracleService);
     expect(await service.v2Months()).toEqual({ months: ['202611'] });
-    expect(executeQuery).toHaveBeenCalledWith(expect.stringContaining("REGEXP_LIKE(TRIM(KPI), '_C3$')"));
+    expect(executeQuery).toHaveBeenCalledWith(
+      expect.stringContaining('REGEXP_LIKE(TRIM(KPI), :kpiPattern)'),
+      { kpiPattern: expect.objectContaining({ val: '_C3$' }) },
+    );
+  });
+
+  it('loads maintenance KPIs and available months using the C3_DT suffix', async () => {
+    const executeQuery = vi.fn()
+      .mockResolvedValueOnce([{ REPORT_MONTH: '202610' }])
+      .mockResolvedValueOnce([{
+        KPI: 'F2.2_FIBER_C3_DT', MA_DV: '237', TEN_DV: 'GLI', BIEUDO: 'Doanh thu duy trì Fiber',
+        DOANH_THU: 1_000_000, KE_HOACH_THANG: 2_000_000,
+      }]);
+    const service = new KpiService({ executeQuery } as unknown as OracleService);
+
+    expect(await service.v2Months('maintenance')).toEqual({ months: ['202610'] });
+    const report = await service.v2Report('2026-10', 'maintenance');
+
+    expect(report.rows).toEqual([expect.objectContaining({ kpi: 'F2.2_FIBER_C3_DT', monthlyRevenue: 1_000_000 })]);
+    expect(executeQuery.mock.calls[0]?.[1]).toEqual({ kpiPattern: expect.objectContaining({ val: '_C3_DT$' }) });
+    expect(executeQuery.mock.calls[1]?.[1]).toEqual({
+      reportMonth: expect.objectContaining({ val: '202610' }),
+      kpiPattern: expect.objectContaining({ val: '_C3_DT$' }),
+    });
   });
 });
 
