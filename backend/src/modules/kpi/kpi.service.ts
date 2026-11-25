@@ -139,6 +139,7 @@ export interface KpiV2Row {
   annualRank: number | null;
   monthlyChange: number | null;
   remainingAnnual: number | null;
+  isTerritory?: boolean;
 }
 
 export interface KpiV2TrendRow {
@@ -193,7 +194,7 @@ export class KpiService {
     return { months: rows.map(row => String(row.REPORT_MONTH).trim()) };
   }
 
-  async v2Report(month: string, group: KpiV2Group = 'actual', unitScope: PtmUnitScope = 'area'): Promise<{ month: string; rows: KpiV2Row[] }> {
+  async v2Report(month: string, group: KpiV2Group = 'actual', unitScope: PtmUnitScope = 'area') {
     if (group === 'ptm') return this.v2PtmReport(month, unitScope);
     const snapshot = month.replace('-', '');
     const kpiPattern = group === 'maintenance' ? '_C3_DT$' : '_C3$';
@@ -266,20 +267,23 @@ export class KpiService {
     return lookup;
   }
 
-  private ptmAreaRows(source: Awaited<ReturnType<KpiService['fiberDevelopment']>>['rows'], lookup: Map<string, { code: string; name: string }>, unitScope: PtmUnitScope): KpiV2Row[] {
+  private ptmAreaRows(source: Awaited<ReturnType<KpiService['fiberDevelopment']>>['rows'], lookup: Map<string, { code: string; name: string }>, unitScope: PtmUnitScope, pattern = PTM_REVENUE_KPI): KpiV2Row[] {
     const byKpiArea = new Map<string, KpiV2Row>();
     const numericKeys = ['monthlyRevenue', 'monthlyPlan', 'cumulativeRevenue', 'cumulativePlan', 'annualPlan'] as const;
     for (const item of source) {
       const group = item.unitGroup.toUpperCase();
-      if (!PTM_REVENUE_KPI.test(item.kpi.toUpperCase()) || !['TTVT', 'VNPT'].includes(group)) continue;
+      const standalone = ['TTCSKH', 'TTKDGP'].includes(group);
+      if (!pattern.test(item.kpi.toUpperCase()) || !['TTVT', 'VNPT', 'TTCSKH', 'TTKDGP'].includes(group)) continue;
       if (unitScope !== 'area' && group !== unitScope.toUpperCase()) continue;
-      const area = lookup.get(`${group}|${item.unitCode}`);
+      const area = standalone
+        ? { code: `${group}:${item.unitCode}`, name: item.unitName || group }
+        : lookup.get(`${group}|${item.unitCode}`);
       if (!area) throw new UnprocessableEntityException(`Không tìm thấy địa bàn cho ${group}, mã đơn vị ${item.unitCode} trong v_donvi_diaban.`);
       const kpi = item.kpi.toUpperCase();
       const key = `${kpi}|${area.code}`;
       let row = byKpiArea.get(key);
       if (!row) {
-        row = { kpi, unitCode: area.code, unitName: area.name, chartName: item.kpiName,
+        row = { kpi, unitCode: area.code, unitName: area.name, chartName: item.kpiName, isTerritory: !standalone,
           monthlyRevenue: null, monthlyPlan: null, cumulativeRevenue: null, cumulativePlan: null, annualPlan: null,
           rank: null, cumulativeRank: null, annualRank: null, monthlyChange: null, remainingAnnual: null };
         byKpiArea.set(key, row);
@@ -309,37 +313,48 @@ export class KpiService {
     return rows;
   }
 
-  private async v2PtmReport(month: string, unitScope: PtmUnitScope): Promise<{ month: string; rows: KpiV2Row[] }> {
+  private async v2PtmReport(month: string, unitScope: PtmUnitScope) {
     const [year, monthNumber] = month.split('-').map(Number);
     const previousMonth = monthNumber === 1 ? `${year! - 1}-12` : `${year}-${String(monthNumber! - 1).padStart(2, '0')}`;
     const [report, previousReport, lookup] = await Promise.all([
       this.fiberDevelopment(month), this.fiberDevelopment(previousMonth), this.ptmAreaLookup(),
     ]);
-    const areas = this.ptmAreaRows(report.rows, lookup, unitScope);
-    const previousAreas = new Map(this.ptmAreaRows(previousReport.rows, lookup, unitScope)
-      .map(row => [`${row.kpi}|${row.unitCode}`, row]));
-    for (const row of areas) {
-      const previous = previousAreas.get(`${row.kpi}|${row.unitCode}`);
-      row.monthlyChange = row.monthlyRevenue != null && previous?.monthlyRevenue != null
-        ? row.monthlyRevenue - previous.monthlyRevenue : null;
-    }
-    const provinces: KpiV2Row[] = [];
-    for (const kpi of [...new Set(areas.map(row => row.kpi))]) {
-      const members = areas.filter(row => row.kpi === kpi);
-      const sum = (field: 'monthlyRevenue' | 'monthlyPlan' | 'cumulativeRevenue' | 'cumulativePlan' | 'annualPlan') => {
-        const values = members.map(row => row[field]).filter((value): value is number => value != null);
-        return values.length ? values.reduce((total, value) => total + value, 0) : null;
-      };
-      const annualPlan = sum('annualPlan');
-      const cumulativeRevenue = sum('cumulativeRevenue');
-      provinces.push({ kpi, unitCode: '237', unitName: 'Toàn tỉnh', chartName: members[0]!.chartName,
-        monthlyRevenue: sum('monthlyRevenue'), monthlyPlan: sum('monthlyPlan'), cumulativeRevenue,
-        cumulativePlan: sum('cumulativePlan'), annualPlan, rank: null, cumulativeRank: null, annualRank: null,
-        monthlyChange: members.every(row => row.monthlyChange != null)
-          ? members.reduce((total, row) => total + row.monthlyChange!, 0) : null,
-        remainingAnnual: annualPlan != null && annualPlan > 0 && cumulativeRevenue != null ? annualPlan - cumulativeRevenue : null });
-    }
-    return { month, rows: [...provinces, ...areas] };
+    const buildRows = (pattern: RegExp) => {
+      const areas = this.ptmAreaRows(report.rows, lookup, unitScope, pattern);
+      const previousAreas = new Map(this.ptmAreaRows(previousReport.rows, lookup, unitScope, pattern)
+        .map(row => [`${row.kpi}|${row.unitCode}`, row]));
+      for (const row of areas) {
+        const previous = previousAreas.get(`${row.kpi}|${row.unitCode}`);
+        row.monthlyChange = row.monthlyRevenue != null && previous?.monthlyRevenue != null
+          ? row.monthlyRevenue - previous.monthlyRevenue : null;
+      }
+      const provinces: KpiV2Row[] = [];
+      for (const kpi of [...new Set(areas.map(row => row.kpi))]) {
+        const members = areas.filter(row => row.kpi === kpi);
+        const sum = (field: 'monthlyRevenue' | 'monthlyPlan' | 'cumulativeRevenue' | 'cumulativePlan' | 'annualPlan') => {
+          const values = members.map(row => row[field]).filter((value): value is number => value != null);
+          return values.length ? values.reduce((total, value) => total + value, 0) : null;
+        };
+        const annualPlan = sum('annualPlan');
+        const cumulativeRevenue = sum('cumulativeRevenue');
+        provinces.push({ kpi, unitCode: '237', unitName: 'Toàn tỉnh', chartName: members[0]!.chartName,
+          monthlyRevenue: sum('monthlyRevenue'), monthlyPlan: sum('monthlyPlan'), cumulativeRevenue,
+          cumulativePlan: sum('cumulativePlan'), annualPlan, rank: null, cumulativeRank: null, annualRank: null,
+          monthlyChange: members.every(row => row.monthlyChange != null)
+            ? members.reduce((total, row) => total + row.monthlyChange!, 0) : null,
+          remainingAnnual: annualPlan != null && annualPlan > 0 && cumulativeRevenue != null ? annualPlan - cumulativeRevenue : null });
+      }
+      return [...provinces, ...areas];
+    };
+    return { month, rows: buildRows(PTM_REVENUE_KPI),
+      subscriberRows: buildRows(/^SLPTM_[A-Z0-9_]+$/).map(row => ({
+        kpi: row.kpi, unitCode: row.unitCode, unitName: row.unitName, chartName: row.chartName,
+        isTerritory: row.isTerritory,
+        monthlyCount: row.monthlyRevenue, cumulativeCount: row.cumulativeRevenue,
+        previousCount: row.monthlyRevenue != null && row.monthlyChange != null ? row.monthlyRevenue - row.monthlyChange : null,
+        change: row.monthlyChange,
+      })),
+    };
   }
 
   async v2SubscriberReport(month: string): Promise<{ month: string; rows: KpiV2SubscriberRow[] }> {

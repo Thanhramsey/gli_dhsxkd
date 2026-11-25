@@ -55,6 +55,7 @@ export type KpiV2Group = 'actual' | 'maintenance' | 'ptm'
 export type PtmUnitScope = 'area' | 'ttvt' | 'vnpt'
 
 export interface KpiV2Row {
+  isTerritory?: boolean
   kpi: KpiV2Code
   unitCode: string
   unitName: string
@@ -74,6 +75,19 @@ export interface KpiV2Row {
 export interface KpiV2Report {
   month: string
   rows: KpiV2Row[]
+  subscriberRows?: KpiV2PtmSubscriberRow[]
+}
+
+export interface KpiV2PtmSubscriberRow {
+  isTerritory?: boolean
+  kpi: string
+  unitCode: string
+  unitName: string
+  chartName: string
+  monthlyCount: number | null
+  cumulativeCount: number | null
+  previousCount: number | null
+  change: number | null
 }
 
 export interface KpiV2SubscriberRow {

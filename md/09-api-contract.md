@@ -51,6 +51,10 @@ Các API sau yêu cầu session. Trường `group` nhận `actual`, `maintenance
 
 `unitScope` của nhóm PTM nhận `area` (mặc định: TTVT + VNPT cùng địa bàn), `ttvt` hoặc `vnpt`. `unitCode` trong response là `DIABAN_ID` của `v_donvi_diaban`; mã toàn tỉnh vẫn là `237`. Các chỉ tiêu tháng, lũy kế và kế hoạch năm được cộng theo KPI và địa bàn trong phạm vi đã chọn. Response dùng cấu trúc `KpiV2Row` như hai tab doanh thu còn lại. `monthlyChange` là thực hiện tháng báo cáo trừ thực hiện tháng liền trước, lấy bằng hai lần gọi procedure có bind tháng; thiếu số so sánh trả `null`. `remainingAnnual` được tính từ kế hoạch năm trừ thực hiện lũy kế khi có kế hoạch hợp lệ.
 
+Response `/kpi/v2-report` với `group: "ptm"` có thêm `subscriberRows` gồm các KPI `SLPTM_*`: `kpi`, `unitCode`, `unitName`, `chartName`, `monthlyCount`, `previousCount`, `change`, `cumulativeCount`. Các số này tính theo thuê bao, không chia cho triệu/tỷ. Giữ `null` khi thiếu dữ liệu; `change` là tháng báo cáo trừ tháng liền trước.
+
+Phạm vi PTM `area` bao gồm cả `TTCSKH`, `TTKDGP` dưới dạng đơn vị riêng. Các dòng này có `unitCode` dạng `TTCSKH:MA_DV` / `TTKDGP:MA_DV`, `isTerritory: false` trong cả `rows` và `subscriberRows`; không hiển thị trên bản đồ vùng. Dùng nguyên `unitCode` đó khi gọi `/kpi/v2-unit-trend`.
+
 ## Chuyển sang SSO
 
 `JwtAuthGuard`, `AuthenticatedUser` và contract `/auth/me` được giữ ổn định. Khi có thông tin OIDC chính thức, thay bước nhận `MA_ND` trong `/auth/login` bằng callback SSO và ánh xạ claim SSO sang đúng `MA_ND`.

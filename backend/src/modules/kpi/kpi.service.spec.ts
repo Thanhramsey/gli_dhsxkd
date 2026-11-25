@@ -3,6 +3,38 @@ import { OracleService } from '../../database/oracle.service.js';
 import { KpiService } from './kpi.service.js';
 
 describe('KpiService.v2Report', () => {
+  it('keeps TTCSKH and TTKDGP as independent PTM units and includes them in province totals', async () => {
+    const executeQuery = vi.fn().mockResolvedValue([
+      { UNIT_GROUP: 'TTVT', UNIT_CODE: '1', AREA_ID: '101', AREA_NAME: 'An Khê' },
+    ]);
+    const executeProcedure = vi.fn().mockImplementation((_package, _procedure, binds) => {
+      const current = binds.P_MONTH.val === '202610';
+      return Promise.resolve({ outBinds: { RSOUT: ['DTPTM_FIBER', 'SLPTM_FIBER'].flatMap(MA_KPI => [
+        { MA_KPI, NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: 10 },
+        { MA_KPI, NHOM_DVI: 'TTCSKH', MA_DV: '1', TEN_DV: 'TTCSKH', THUCHIEN_THANG: current ? 20 : 15 },
+        { MA_KPI, NHOM_DVI: 'TTKDGP', MA_DV: '1', TEN_DV: 'TTKDGP', THUCHIEN_THANG: current ? 30 : 25 },
+        { MA_KPI, NHOM_DVI: 'TOANTINH', MA_DV: '237', THUCHIEN_THANG: 999 },
+      ]) } });
+    });
+    const service = new KpiService({ executeQuery, executeProcedure } as unknown as OracleService);
+    const report = await service.v2Report('2026-10', 'ptm');
+    expect(report.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ unitCode: '237', monthlyRevenue: 60, monthlyChange: 10 }),
+      expect.objectContaining({ unitCode: '101', monthlyRevenue: 10, isTerritory: true }),
+      expect.objectContaining({ unitCode: 'TTCSKH:1', monthlyRevenue: 20, monthlyChange: 5, isTerritory: false }),
+      expect.objectContaining({ unitCode: 'TTKDGP:1', monthlyRevenue: 30, monthlyChange: 5, isTerritory: false }),
+    ]));
+    expect(report.subscriberRows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ unitCode: '237', monthlyCount: 60, change: 10 }),
+      expect.objectContaining({ unitCode: 'TTCSKH:1', monthlyCount: 20, isTerritory: false }),
+      expect.objectContaining({ unitCode: 'TTKDGP:1', monthlyCount: 30, isTerritory: false }),
+    ]));
+    const ttvt = await service.v2Report('2026-10', 'ptm', 'ttvt');
+    expect(ttvt.rows.map(row => row.unitCode)).toEqual(['237', '101']);
+    const trend = await service.v2UnitTrend({ month: '2026-01', kpi: 'DTPTM_FIBER', unitCode: 'TTCSKH:1', group: 'ptm' });
+    expect(trend.rows[0]?.monthlyRevenue).toBe(15);
+  });
+
   it.each(['area', 'ttvt', 'vnpt'] as const)('compares PTM with the preceding month for scope %s, including January rollover', async unitScope => {
     const executeQuery = vi.fn().mockResolvedValue([
       { UNIT_GROUP: 'TTVT', UNIT_CODE: '1', AREA_ID: '101', AREA_NAME: 'An Khê' },
@@ -13,6 +45,8 @@ describe('KpiService.v2Report', () => {
       return Promise.resolve({ outBinds: { RSOUT: [
         { MA_KPI: 'DTPTM_FIBER', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: current ? 80 : 100 },
         { MA_KPI: 'DTPTM_FIBER', NHOM_DVI: 'VNPT', MA_DV: 'A1', THUCHIEN_THANG: current ? 50 : 0 },
+        { MA_KPI: 'SLPTM_CAMERA', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: current ? 8 : 10, THUCHIEN_LK: 8 },
+        { MA_KPI: 'SLPTM_CAMERA', NHOM_DVI: 'VNPT', MA_DV: 'A1', THUCHIEN_THANG: current ? 5 : 0, THUCHIEN_LK: 5 },
         ...(current ? [{ MA_KPI: 'DTPTM_MESH', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: 10 }] : []),
       ] } });
     });
@@ -22,6 +56,13 @@ describe('KpiService.v2Report', () => {
     const change = unitScope === 'area' ? 30 : unitScope === 'ttvt' ? -20 : 50;
     expect(report.rows.filter(row => row.kpi === 'DTPTM_FIBER').map(row => row.monthlyChange)).toEqual([change, change]);
     expect(report.rows.filter(row => row.kpi === 'DTPTM_MESH').every(row => row.monthlyChange === null)).toBe(true);
+    expect(report.rows.every(row => row.kpi.startsWith('DTPTM_'))).toBe(true);
+    const count = unitScope === 'area' ? 13 : unitScope === 'ttvt' ? 8 : 5;
+    const previousCount = unitScope === 'vnpt' ? 0 : 10;
+    expect(report.subscriberRows).toEqual([
+      expect.objectContaining({ kpi: 'SLPTM_CAMERA', unitCode: '237', monthlyCount: count, previousCount, change: count - previousCount, cumulativeCount: count }),
+      expect.objectContaining({ kpi: 'SLPTM_CAMERA', unitCode: '101', monthlyCount: count, previousCount, change: count - previousCount, cumulativeCount: count }),
+    ]);
   });
 
   it('reads every C3 KPI, including a new code, and keeps zero plans distinct from missing data', async () => {

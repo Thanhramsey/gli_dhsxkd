@@ -60,7 +60,7 @@ const periodFields = computed(() => {
   if (localPeriod.value === 'annual') return { actual: 'cumulativeRevenue' as const, plan: 'annualPlan' as const, label: 'Kế hoạch năm' }
   return { actual: 'monthlyRevenue' as const, plan: 'monthlyPlan' as const, label: 'Trong tháng' }
 })
-const units = computed(() => localRows.value.filter(row => row.kpi === localKpi.value && row.unitCode !== '237').map(row => {
+const units = computed(() => localRows.value.filter(row => row.kpi === localKpi.value && row.unitCode !== '237' && row.isTerritory !== false).map(row => {
   const areaId = normalize(row.unitName)
   const region = centerRegions.find(item => item.centerKey === areaId)
   const actual = row[periodFields.value.actual]

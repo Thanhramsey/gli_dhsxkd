@@ -7,6 +7,8 @@ import { getAuthErrorMessage } from '../api/auth.api'
 import type { KpiV2Code, KpiV2Group, KpiV2Row, KpiV2TrendRow, KpiV2SubscriberRow, PtmUnitScope } from '../types/kpi'
 import { adaptChartOptionForTheme } from '../utils/chart-theme'
 import KpiUnitMapDialog from '../components/KpiUnitMapDialog.vue'
+import PtmSubscriberDashboard from '../components/charts/PtmSubscriberDashboard.vue'
+import type { KpiV2PtmSubscriberRow } from '../types/kpi'
 import '../plugins/echarts'
 
 type AmountKey = 'monthlyRevenue' | 'monthlyPlan' | 'cumulativeRevenue' | 'cumulativePlan' | 'annualPlan' | 'monthlyChange' | 'remainingAnnual'
@@ -38,6 +40,7 @@ const reportGroup = ref<KpiV2Group>('actual')
 const ptmUnitScope = ref<PtmUnitScope>('area')
 const reportGroupLabel = computed(() => reportGroup.value === 'maintenance' ? 'doanh thu duy trì' : reportGroup.value === 'ptm' ? 'doanh thu PTM' : 'doanh thu thực hiện')
 const subscriberRows = ref<KpiV2SubscriberRow[]>([])
+const ptmSubscriberRows = ref<KpiV2PtmSubscriberRow[]>([])
 const selectedSubscriberIndicator = ref('PTM')
 const subscriberLoading = ref(false)
 const subscriberError = ref('')
@@ -439,6 +442,7 @@ async function load() {
     if (version !== loadVersion) return
     if (revenueResult.status === 'fulfilled') {
       rows.value = revenueResult.value.rows
+      ptmSubscriberRows.value = revenueResult.value.subscriberRows ?? []
       if (unitCode.value && !rows.value.some(row => row.unitCode === unitCode.value)) unitCode.value = null
       else if (unitCode.value) trendRefresh.value += 1
     } else {
@@ -535,7 +539,7 @@ onMounted(async () => {
         <v-select v-model="scope" :items="[{ title: '1. Báo cáo Viễn thông tỉnh', value: 'province' }, { title: '2. Báo cáo địa bàn cấp 2', value: 'unit' }]" label="Địa bàn cấp" variant="outlined" density="compact" hide-details @update:model-value="unitCode = null" />
         <v-autocomplete v-if="scope === 'unit'" v-model="unitCode" :items="unitOptions" label="Địa bàn" placeholder="Toàn tỉnh" variant="outlined" density="compact" clearable hide-details />
         <v-text-field v-else model-value="Toàn tỉnh" label="Địa bàn" variant="outlined" density="compact" hide-details readonly />
-        <v-select v-if="reportGroup === 'ptm'" :model-value="ptmUnitScope" :items="[{ title: 'Cả địa bàn (TTVT + VNPT)', value: 'area' }, { title: 'TTVT', value: 'ttvt' }, { title: 'VNPT', value: 'vnpt' }]" label="Nhóm đơn vị" variant="outlined" density="compact" hide-details @update:model-value="changePtmUnitScope" />
+        <v-select v-if="reportGroup === 'ptm'" :model-value="ptmUnitScope" :items="[{ title: 'Tất cả đơn vị', value: 'area' }, { title: 'TTVT', value: 'ttvt' }, { title: 'VNPT', value: 'vnpt' }]" label="Nhóm đơn vị" variant="outlined" density="compact" hide-details @update:model-value="changePtmUnitScope" />
         <v-btn color="primary" prepend-icon="mdi-database-search-outline" :loading="loading" :disabled="!month" @click="load">Lấy số liệu</v-btn>
         <v-btn color="primary" variant="tonal" prepend-icon="mdi-map-marker-radius-outline" :disabled="!loaded || !unitRows.length || !!error" @click="mapDialogOpen = true">Bản đồ địa bàn</v-btn>
       </div>
@@ -671,6 +675,7 @@ onMounted(async () => {
           </section>
         </template>
         <!-- Nguồn TONGHOP_KPI_ALL chưa có dữ liệu so sánh cùng kỳ. -->
+        <PtmSubscriberDashboard v-if="reportGroup === 'ptm'" :rows="ptmSubscriberRows" :month="month" :scope="scope" :unit-code="unitCode" :selected-kpi="selectedKpi" @select-unit="unitCode = $event" />
       </template>
     </v-card>
     <KpiUnitMapDialog v-model="mapDialogOpen" :rows="unitRows" :group="reportGroup" :unit-scope="ptmUnitScope" :months="months" :month="month" :selected-kpi="selectedKpi" :period="unitPeriod" :initial-unit-code="unitCode" />
