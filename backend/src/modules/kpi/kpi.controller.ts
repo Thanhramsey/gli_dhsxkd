@@ -22,9 +22,9 @@ export class KpiController {
   }
 
   @Post('v2-report')
-  @ApiOperation({ summary: 'Các KPI doanh thu cấp 3 từ TONGHOP_KPI_ALL theo tháng' })
+  @ApiOperation({ summary: 'KPI doanh thu giao ban v2 theo tháng; nhóm PTM lấy từ BCGIAOBAN_GLI.SP_VIEW_PTM' })
   v2Report(@Body() input: KpiV2ReportQueryDto) {
-    return this.service.v2Report(input.month, input.group);
+    return this.service.v2Report(input.month, input.group, input.unitScope);
   }
 
   @Post('v2-subscriber-report')

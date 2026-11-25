@@ -4,7 +4,7 @@ import VChart from 'vue-echarts'
 import { useTheme } from 'vuetify'
 import { kpiApi } from '../api/kpi.api'
 import { getAuthErrorMessage } from '../api/auth.api'
-import type { KpiV2Code, KpiV2Group, KpiV2Row, KpiV2TrendRow, KpiV2SubscriberRow } from '../types/kpi'
+import type { KpiV2Code, KpiV2Group, KpiV2Row, KpiV2TrendRow, KpiV2SubscriberRow, PtmUnitScope } from '../types/kpi'
 import { adaptChartOptionForTheme } from '../utils/chart-theme'
 import KpiUnitMapDialog from '../components/KpiUnitMapDialog.vue'
 import '../plugins/echarts'
@@ -35,7 +35,8 @@ const pickerYear = ref(new Date().getFullYear())
 const pickerViewMode = ref<'month' | 'months' | 'year'>('months')
 const rows = ref<KpiV2Row[]>([])
 const reportGroup = ref<KpiV2Group>('actual')
-const reportGroupLabel = computed(() => reportGroup.value === 'maintenance' ? 'doanh thu duy trì' : 'doanh thu thực hiện')
+const ptmUnitScope = ref<PtmUnitScope>('area')
+const reportGroupLabel = computed(() => reportGroup.value === 'maintenance' ? 'doanh thu duy trì' : reportGroup.value === 'ptm' ? 'doanh thu PTM' : 'doanh thu thực hiện')
 const subscriberRows = ref<KpiV2SubscriberRow[]>([])
 const selectedSubscriberIndicator = ref('PTM')
 const subscriberLoading = ref(false)
@@ -288,15 +289,25 @@ const annualProgressOption = computed(() => {
       const item = source[items[0]?.dataIndex ?? -1]
       return item ? `${item.title}<br/>TH lũy kế: ${billions(item.row?.cumulativeRevenue)}<br/>KH năm: ${billions(item.row?.annualPlan)}<br/>Hoàn thành: ${percent(rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null))}<br/>So với KH năm: ${annualGapWithUnit(item.row?.remainingAnnual)}` : ''
     } },
-    grid: { left: 150, right: 105, top: 22, bottom: 43 },
+    grid: { left: 150, right: 105, top: 38, bottom: 43 },
     xAxis: { type: 'value', min: 0, max: (range: { max: number }) => Math.max(110, Math.ceil(range.max / 10) * 10), axisLabel: { formatter: '{value}%' }, splitLine: { lineStyle: { color: '#e8eef3' } } },
     yAxis: { type: 'category', inverse: true, data: source.map(item => item.label), axisTick: { show: false }, axisLabel: { width: 136, overflow: 'truncate' } },
-    series: [{ type: 'bar', barMaxWidth: 30, data: source.map(item => {
-      const value = rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null)
-      return { value, itemStyle: { color: rateColor(value), borderRadius: [0, 5, 5, 0] } }
-    }), label: { show: true, position: 'right', formatter: ({ value }: { value: number | null }) => percent(value) },
-    markLine: { silent: true, symbol: 'none', label: { show: false }, lineStyle: { color: '#728599', type: 'dashed' }, data: [{ xAxis: 100 }] },
-    }],
+    series: [
+      { type: 'bar', barWidth: 30, silent: true, z: 1, tooltip: { show: false },
+        itemStyle: { color: theme.global.current.value.dark ? 'rgba(199,220,235,.16)' : '#e8eef3', borderRadius: [0, 5, 5, 0] },
+        data: source.map(item => item.row?.annualPlan != null && item.row.annualPlan > 0 ? 100 : null),
+      },
+      { type: 'bar', barWidth: 30, barGap: '-100%', z: 2, data: source.map(item => {
+        const value = rate(item.row?.cumulativeRevenue ?? null, item.row?.annualPlan ?? null)
+        return { value, itemStyle: { color: rateColor(value), borderRadius: [0, 5, 5, 0] } }
+      }), label: { show: true, position: 'right', formatter: ({ value }: { value: number | null }) => percent(value) },
+      markLine: { silent: true, symbol: 'none',
+        label: { show: true, position: 'end', formatter: '', color: theme.global.current.value.dark ? '#9fc8df' : '#527c98', fontSize: 11, fontWeight: 600, distance: 5 },
+        lineStyle: { color: theme.global.current.value.dark ? '#7294aa' : '#8eaabc', type: 'solid', width: 1.5 },
+        data: [{ xAxis: 100 }],
+      },
+      },
+    ],
   }, theme.global.current.value.dark)
 })
 
@@ -368,7 +379,7 @@ function selectKpiFromTable(code: KpiV2Code) {
   selectedKpi.value = code
 }
 
-watch([scope, unitCode, selectedKpi, month, trendRefresh], async () => {
+watch([scope, unitCode, selectedKpi, month, reportGroup, ptmUnitScope, trendRefresh], async () => {
   const version = ++trendVersion
   trendRows.value = []
   trendError.value = ''
@@ -378,7 +389,7 @@ watch([scope, unitCode, selectedKpi, month, trendRefresh], async () => {
   }
   trendLoading.value = true
   try {
-    const result = await kpiApi.v2UnitTrend(month.value, selectedKpi.value, unitCode.value)
+    const result = await kpiApi.v2UnitTrend(month.value, selectedKpi.value, unitCode.value, reportGroup.value, ptmUnitScope.value)
     if (version === trendVersion) trendRows.value = result.rows
   } catch (cause) {
     if (version === trendVersion) trendError.value = getAuthErrorMessage(cause)
@@ -415,13 +426,14 @@ async function load() {
   const version = ++loadVersion
   const queryMonth = month.value
   const queryGroup = reportGroup.value
+  const queryUnitScope = ptmUnitScope.value
   loading.value = true
   subscriberLoading.value = queryGroup === 'actual'
   error.value = ''
   subscriberError.value = ''
   try {
     const [revenueResult, subscriberResult] = await Promise.allSettled([
-      kpiApi.v2Report(queryMonth, queryGroup),
+      kpiApi.v2Report(queryMonth, queryGroup, queryUnitScope),
       queryGroup === 'actual' ? kpiApi.v2SubscriberReport(queryMonth) : Promise.resolve({ rows: [] as KpiV2SubscriberRow[] }),
     ])
     if (version !== loadVersion) return
@@ -445,6 +457,15 @@ async function load() {
       subscriberLoading.value = false
     }
   }
+}
+
+function changePtmUnitScope(value: PtmUnitScope) {
+  if (ptmUnitScope.value === value) return
+  ptmUnitScope.value = value
+  unitCode.value = null
+  rows.value = []
+  loaded.value = false
+  void load()
 }
 
 async function changeReportGroup(next: KpiV2Group) {
@@ -504,6 +525,7 @@ onMounted(async () => {
       <v-tabs :model-value="reportGroup" class="report-group-tabs" color="primary" @update:model-value="changeReportGroup">
         <v-tab value="actual">Doanh thu thực hiện</v-tab>
         <v-tab value="maintenance">Doanh thu duy trì</v-tab>
+        <v-tab value="ptm">Doanh thu PTM</v-tab>
       </v-tabs>
       <div class="filters">
         <v-menu v-model="monthMenuOpen" :close-on-content-click="false">
@@ -513,7 +535,9 @@ onMounted(async () => {
         <v-select v-model="scope" :items="[{ title: '1. Báo cáo Viễn thông tỉnh', value: 'province' }, { title: '2. Báo cáo địa bàn cấp 2', value: 'unit' }]" label="Địa bàn cấp" variant="outlined" density="compact" hide-details @update:model-value="unitCode = null" />
         <v-autocomplete v-if="scope === 'unit'" v-model="unitCode" :items="unitOptions" label="Địa bàn" placeholder="Toàn tỉnh" variant="outlined" density="compact" clearable hide-details />
         <v-text-field v-else model-value="Toàn tỉnh" label="Địa bàn" variant="outlined" density="compact" hide-details readonly />
+        <v-select v-if="reportGroup === 'ptm'" :model-value="ptmUnitScope" :items="[{ title: 'Cả địa bàn (TTVT + VNPT)', value: 'area' }, { title: 'TTVT', value: 'ttvt' }, { title: 'VNPT', value: 'vnpt' }]" label="Nhóm đơn vị" variant="outlined" density="compact" hide-details @update:model-value="changePtmUnitScope" />
         <v-btn color="primary" prepend-icon="mdi-database-search-outline" :loading="loading" :disabled="!month" @click="load">Lấy số liệu</v-btn>
+        <v-btn color="primary" variant="tonal" prepend-icon="mdi-map-marker-radius-outline" :disabled="!loaded || !unitRows.length || !!error" @click="mapDialogOpen = true">Bản đồ địa bàn</v-btn>
       </div>
       <v-alert v-if="error" class="mx-5 mb-4" type="error" variant="tonal">{{ error }}</v-alert>
       <v-alert v-if="loaded && !rows.length && !error" class="mx-5 mb-4" type="info" variant="tonal">Chưa có dữ liệu {{ reportGroupLabel }} cho {{ monthLabel || 'tháng đã chọn' }}.</v-alert>
@@ -568,7 +592,7 @@ onMounted(async () => {
             <div class="unit-period"><span>Kỳ so sánh</span><v-btn-toggle v-model="unitPeriod" class="unit-period-toggle" mandatory color="primary" density="comfortable" variant="text"><v-btn value="monthly">Trong tháng</v-btn><v-btn value="cumulative">Lũy kế</v-btn><v-btn value="annual">Kế hoạch năm</v-btn></v-btn-toggle></div>
           </div>
           <v-card id="v2-unit-chart" class="unit-chart-card" elevation="0">
-            <div class="unit-chart-heading"><h2>{{ unitCode ? `Diễn biến ${reportGroupLabel}` : 'Tỷ lệ hoàn thành' }}: {{ kpis.find(kpi => kpi.code === selectedKpi)?.title }}</h2><v-btn color="primary" variant="tonal" size="small" prepend-icon="mdi-map-marker-radius-outline" @click="mapDialogOpen = true">Xem bản đồ</v-btn></div>
+            <div class="unit-chart-heading"><h2>{{ unitCode ? `Diễn biến ${reportGroupLabel}` : 'Tỷ lệ hoàn thành' }}: {{ kpis.find(kpi => kpi.code === selectedKpi)?.title }}</h2></div>
             <p v-if="unitCode">{{ selectedUnitName }} · tháng 1–{{ Number(month.slice(5)) }}/{{ month.slice(0, 4) }} · {{ unitPeriodFields.label }} so với {{ unitPeriodFields.planLabel.toLowerCase() }}</p>
             <p v-else>{{ monthLabel }} · {{ unitPeriodFields.label }} so với {{ unitPeriodFields.planLabel.toLowerCase() }} · {{ selectedRows.length }}/{{ unitOptions.length }} địa bàn có số liệu</p>
             <template v-if="unitCode">
@@ -649,7 +673,7 @@ onMounted(async () => {
         <!-- Nguồn TONGHOP_KPI_ALL chưa có dữ liệu so sánh cùng kỳ. -->
       </template>
     </v-card>
-    <KpiUnitMapDialog v-model="mapDialogOpen" :rows="unitRows" :group="reportGroup" :months="months" :month="month" :selected-kpi="selectedKpi" :period="unitPeriod" :initial-unit-code="unitCode" />
+    <KpiUnitMapDialog v-model="mapDialogOpen" :rows="unitRows" :group="reportGroup" :unit-scope="ptmUnitScope" :months="months" :month="month" :selected-kpi="selectedKpi" :period="unitPeriod" :initial-unit-code="unitCode" />
   </v-container>
 </template>
 

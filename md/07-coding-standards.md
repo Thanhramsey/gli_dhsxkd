@@ -25,6 +25,7 @@
 7. FE: chart dùng wrapper trong `components/charts/`, không viết `option` ECharts trực tiếp trong view.
 8. Có trạng thái `loading` / `error` hiển thị rõ ràng cho người dùng (skeleton, alert).
 9. Responsive: kiểm tra layout trên màn hình nhỏ (dùng grid Vuetify).
+   Các khối bao ngoài có viền mờ và shadow nhẹ theo quy tắc thiết kế trong `04-frontend-vue3.md`, áp dụng cả trong popup.
 10. Không hardcode secret/connection string — dùng biến môi trường.
 
 ## Testing (khuyến nghị mức tối thiểu)

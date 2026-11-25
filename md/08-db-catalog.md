@@ -56,3 +56,11 @@ Mỗi người dùng thuộc tối đa một nhóm vì `LEVEL_ROLE` là một c�
 - `TM1` đến `TM7` là các cấu hình tham số của báo cáo và có thể để trống.
 
 Hai bảng cũ `NBH_NHOM_ND` và `NBH_NHOM_ND_MENU` không được ứng dụng truy vấn.
+
+## Dữ liệu giao ban v2 — Doanh thu PTM
+
+- Tab `Doanh thu PTM` gọi `NBH_CDS_NEW.BCGIAOBAN_GLI.SP_VIEW_PTM(P_MONTH, RSOUT)` với `P_MONTH` dạng `YYYYMM` bằng Oracle bind variable.
+- Lấy các KPI doanh thu có mã `DTPTM_*` mà procedure trả về, hiện gồm Fiber, MyTV, Mesh và Camera. Các dòng `SLPTM_*` là số lượng thuê bao nên không cộng vào báo cáo doanh thu.
+- Procedure trả kế hoạch và thực hiện tháng, lũy kế, kế hoạch năm theo `TOANTINH`, `TTVT` và `VNPT`. Giao ban v2 nối các dòng `TTVT`/`VNPT` với `v_donvi_diaban` bằng cặp `(NHOM_DVI, MA_DV)`, gom theo `DIABAN_ID` và `MA_KPI`. Chế độ mặc định cộng hai nhóm; có thể lọc riêng từng nhóm. Dòng toàn tỉnh được cộng từ các địa bàn trong phạm vi đã chọn, không cộng thêm dòng `TOANTINH` của procedure.
+- Danh sách tháng có thực hiện lấy từ `GLI_TH_CHITIEUGB` theo các mã KPI `DTPTM_*`.
+- Procedure không trả mức tăng giảm so với tháng trước. Báo cáo PTM gọi thêm procedure cho tháng liền trước (tháng 1 so với tháng 12 năm trước), gom cùng phạm vi rồi lấy thực hiện tháng báo cáo trừ tháng trước theo KPI và `DIABAN_ID`. Thiếu dữ liệu tháng trước giữ `null`, không thay bằng 0. Tổng toàn tỉnh chỉ có mức chênh khi tất cả địa bàn trong tổng có số so sánh.

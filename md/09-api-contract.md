@@ -39,6 +39,18 @@ Response người dùng giữ `groupId`, `groupName` và `groupIds` để tươn
 
 Mã menu được phép mở trang quản trị cấu hình bằng biến `MENU_ADMIN_CODE`. Giá trị này phải là `MENU_ID` tương ứng trong `GLI_MENU`; frontend dùng biến `VITE_MENU_ADMIN_CODE` cùng giá trị.
 
+## Dữ liệu giao ban v2 — Doanh thu PTM
+
+Các API sau yêu cầu session. Trường `group` nhận `actual`, `maintenance` hoặc `ptm`:
+
+| Method | Endpoint | Đầu vào | Nguồn nhóm `ptm` |
+|---|---|---|---|
+| `GET` | `/kpi/v2-months` | `?group=ptm` | Tháng có dữ liệu thực hiện của các KPI `DTPTM_*` |
+| `POST` | `/kpi/v2-report` | `{ "month": "2026-10", "group": "ptm", "unitScope": "area" }` | `BCGIAOBAN_GLI.SP_VIEW_PTM` với `P_MONTH` được bind |
+| `POST` | `/kpi/v2-unit-trend` | `{ "month": "2026-10", "group": "ptm", "unitScope": "area", "kpi": "DTPTM_FIBER", "unitCode": "..." }` | Cùng procedure theo từng tháng đến tháng báo cáo |
+
+`unitScope` của nhóm PTM nhận `area` (mặc định: TTVT + VNPT cùng địa bàn), `ttvt` hoặc `vnpt`. `unitCode` trong response là `DIABAN_ID` của `v_donvi_diaban`; mã toàn tỉnh vẫn là `237`. Các chỉ tiêu tháng, lũy kế và kế hoạch năm được cộng theo KPI và địa bàn trong phạm vi đã chọn. Response dùng cấu trúc `KpiV2Row` như hai tab doanh thu còn lại. `monthlyChange` là thực hiện tháng báo cáo trừ thực hiện tháng liền trước, lấy bằng hai lần gọi procedure có bind tháng; thiếu số so sánh trả `null`. `remainingAnnual` được tính từ kế hoạch năm trừ thực hiện lũy kế khi có kế hoạch hợp lệ.
+
 ## Chuyển sang SSO
 
 `JwtAuthGuard`, `AuthenticatedUser` và contract `/auth/me` được giữ ổn định. Khi có thông tin OIDC chính thức, thay bước nhận `MA_ND` trong `/auth/login` bằng callback SSO và ánh xạ claim SSO sang đúng `MA_ND`.

@@ -51,7 +51,8 @@ export interface KpiFiberPsc {
 }
 
 export type KpiV2Code = string
-export type KpiV2Group = 'actual' | 'maintenance'
+export type KpiV2Group = 'actual' | 'maintenance' | 'ptm'
+export type PtmUnitScope = 'area' | 'ttvt' | 'vnpt'
 
 export interface KpiV2Row {
   kpi: KpiV2Code

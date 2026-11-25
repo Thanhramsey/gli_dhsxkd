@@ -1,13 +1,14 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, UnprocessableEntityException } from '@nestjs/common';
 import oracledb from 'oracledb';
 import { OracleService } from '../../database/oracle.service.js';
 import { KpiQueryDto } from './kpi-query.dto.js';
 import { KpiPscQueryDto } from './kpi-psc-query.dto.js';
 import { KpiTrendQueryDto } from './kpi-trend-query.dto.js';
-import type { KpiV2Group } from './kpi-v2-group-query.dto.js';
+import type { KpiV2Group, PtmUnitScope } from './kpi-v2-group-query.dto.js';
 
 const PACKAGE_NAME = 'NBH_CDS_NEW.MA_KPI_GLI_TONG';
 const PROCEDURE_NAME = 'TONG_HOP_KPI';
+const PTM_REVENUE_KPI = /^DTPTM_[A-Z0-9_]+$/;
 const SNAPSHOT_KPI_CODES: Readonly<Record<string, string | undefined>> = {
   TONG_HOP_KPI_BRCD: 'F1.FIBER_C2',
   TONG_HOP_KPI_MYTV: 'F1.MYTV_C2',
@@ -169,6 +170,16 @@ export class KpiService {
   constructor(private readonly oracleService: OracleService) {}
 
   async v2Months(group: KpiV2Group = 'actual'): Promise<{ months: string[] }> {
+    if (group === 'ptm') {
+      const rows = await this.oracleService.executeQuery<{ REPORT_MONTH: unknown }>(
+        `SELECT DISTINCT TRIM(TO_CHAR(THANG)) AS REPORT_MONTH
+           FROM NBH_CDS_NEW.GLI_TH_CHITIEUGB
+          WHERE REGEXP_LIKE(TRIM(UPPER(MA_KPI)), '^DTPTM_[A-Z0-9_]+$')
+            AND REGEXP_LIKE(TRIM(TO_CHAR(THANG)), '^20[0-9]{4}$')
+         ORDER BY REPORT_MONTH DESC`,
+      );
+      return { months: rows.map(row => String(row.REPORT_MONTH).trim()) };
+    }
     const kpiPattern = group === 'maintenance' ? '_C3_DT$' : '_C3$';
     const rows = await this.oracleService.executeQuery<{ REPORT_MONTH: unknown }>(
       `SELECT DISTINCT TRIM(THANG_DULIEU) AS REPORT_MONTH
@@ -182,7 +193,8 @@ export class KpiService {
     return { months: rows.map(row => String(row.REPORT_MONTH).trim()) };
   }
 
-  async v2Report(month: string, group: KpiV2Group = 'actual'): Promise<{ month: string; rows: KpiV2Row[] }> {
+  async v2Report(month: string, group: KpiV2Group = 'actual', unitScope: PtmUnitScope = 'area'): Promise<{ month: string; rows: KpiV2Row[] }> {
+    if (group === 'ptm') return this.v2PtmReport(month, unitScope);
     const snapshot = month.replace('-', '');
     const kpiPattern = group === 'maintenance' ? '_C3_DT$' : '_C3$';
     const rows = await this.oracleService.executeQuery<Record<string, unknown>>(
@@ -231,6 +243,105 @@ export class KpiService {
     };
   }
 
+  private async ptmAreaLookup(): Promise<Map<string, { code: string; name: string }>> {
+    const rows = await this.oracleService.executeQuery<{ UNIT_GROUP: unknown; UNIT_CODE: unknown; AREA_ID: unknown; AREA_NAME: unknown }>(
+      `SELECT DISTINCT UPPER(TRIM(NHOM_DVI)) AS UNIT_GROUP,
+              TRIM(TO_CHAR(MA_DV)) AS UNIT_CODE,
+              TRIM(TO_CHAR(DIABAN_ID)) AS AREA_ID,
+              TRIM(TEN_DIABAN) AS AREA_NAME
+         FROM v_donvi_diaban
+        WHERE UPPER(TRIM(NHOM_DVI)) IN ('TTVT', 'VNPT')
+          AND DIABAN_ID IS NOT NULL`,
+    );
+    const lookup = new Map<string, { code: string; name: string }>();
+    for (const row of rows) {
+      const key = `${String(row.UNIT_GROUP ?? '').trim()}|${String(row.UNIT_CODE ?? '').trim()}`;
+      const area = { code: String(row.AREA_ID ?? '').trim(), name: String(row.AREA_NAME ?? '').trim() };
+      if (!area.code || !area.name) continue;
+      if (lookup.has(key) && lookup.get(key)!.code !== area.code) {
+        throw new UnprocessableEntityException(`Mã đơn vị ${key} thuộc nhiều địa bàn trong v_donvi_diaban.`);
+      }
+      lookup.set(key, area);
+    }
+    return lookup;
+  }
+
+  private ptmAreaRows(source: Awaited<ReturnType<KpiService['fiberDevelopment']>>['rows'], lookup: Map<string, { code: string; name: string }>, unitScope: PtmUnitScope): KpiV2Row[] {
+    const byKpiArea = new Map<string, KpiV2Row>();
+    const numericKeys = ['monthlyRevenue', 'monthlyPlan', 'cumulativeRevenue', 'cumulativePlan', 'annualPlan'] as const;
+    for (const item of source) {
+      const group = item.unitGroup.toUpperCase();
+      if (!PTM_REVENUE_KPI.test(item.kpi.toUpperCase()) || !['TTVT', 'VNPT'].includes(group)) continue;
+      if (unitScope !== 'area' && group !== unitScope.toUpperCase()) continue;
+      const area = lookup.get(`${group}|${item.unitCode}`);
+      if (!area) throw new UnprocessableEntityException(`Không tìm thấy địa bàn cho ${group}, mã đơn vị ${item.unitCode} trong v_donvi_diaban.`);
+      const kpi = item.kpi.toUpperCase();
+      const key = `${kpi}|${area.code}`;
+      let row = byKpiArea.get(key);
+      if (!row) {
+        row = { kpi, unitCode: area.code, unitName: area.name, chartName: item.kpiName,
+          monthlyRevenue: null, monthlyPlan: null, cumulativeRevenue: null, cumulativePlan: null, annualPlan: null,
+          rank: null, cumulativeRank: null, annualRank: null, monthlyChange: null, remainingAnnual: null };
+        byKpiArea.set(key, row);
+      }
+      const values = [item.actual, item.plan, item.cumulativeActual, item.cumulativePlan, item.annualPlan];
+      numericKeys.forEach((field, index) => {
+        const value = values[index];
+        if (value != null) row![field] = (row![field] ?? 0) + value;
+      });
+    }
+    const rows = [...byKpiArea.values()];
+    for (const row of rows) {
+      row.remainingAnnual = row.annualPlan != null && row.annualPlan > 0 && row.cumulativeRevenue != null
+        ? row.annualPlan - row.cumulativeRevenue : null;
+    }
+    const rankBy = (actual: 'monthlyRevenue' | 'cumulativeRevenue', plan: 'monthlyPlan' | 'cumulativePlan' | 'annualPlan', field: 'rank' | 'cumulativeRank' | 'annualRank') => {
+      const kpis = [...new Set(rows.map(row => row.kpi))];
+      for (const kpi of kpis) {
+        rows.filter(row => row.kpi === kpi && row[actual] != null && row[plan] != null && row[plan]! > 0)
+          .sort((a, b) => b[actual]! / b[plan]! - a[actual]! / a[plan]!)
+          .forEach((row, index) => { row[field] = index + 1; });
+      }
+    };
+    rankBy('monthlyRevenue', 'monthlyPlan', 'rank');
+    rankBy('cumulativeRevenue', 'cumulativePlan', 'cumulativeRank');
+    rankBy('cumulativeRevenue', 'annualPlan', 'annualRank');
+    return rows;
+  }
+
+  private async v2PtmReport(month: string, unitScope: PtmUnitScope): Promise<{ month: string; rows: KpiV2Row[] }> {
+    const [year, monthNumber] = month.split('-').map(Number);
+    const previousMonth = monthNumber === 1 ? `${year! - 1}-12` : `${year}-${String(monthNumber! - 1).padStart(2, '0')}`;
+    const [report, previousReport, lookup] = await Promise.all([
+      this.fiberDevelopment(month), this.fiberDevelopment(previousMonth), this.ptmAreaLookup(),
+    ]);
+    const areas = this.ptmAreaRows(report.rows, lookup, unitScope);
+    const previousAreas = new Map(this.ptmAreaRows(previousReport.rows, lookup, unitScope)
+      .map(row => [`${row.kpi}|${row.unitCode}`, row]));
+    for (const row of areas) {
+      const previous = previousAreas.get(`${row.kpi}|${row.unitCode}`);
+      row.monthlyChange = row.monthlyRevenue != null && previous?.monthlyRevenue != null
+        ? row.monthlyRevenue - previous.monthlyRevenue : null;
+    }
+    const provinces: KpiV2Row[] = [];
+    for (const kpi of [...new Set(areas.map(row => row.kpi))]) {
+      const members = areas.filter(row => row.kpi === kpi);
+      const sum = (field: 'monthlyRevenue' | 'monthlyPlan' | 'cumulativeRevenue' | 'cumulativePlan' | 'annualPlan') => {
+        const values = members.map(row => row[field]).filter((value): value is number => value != null);
+        return values.length ? values.reduce((total, value) => total + value, 0) : null;
+      };
+      const annualPlan = sum('annualPlan');
+      const cumulativeRevenue = sum('cumulativeRevenue');
+      provinces.push({ kpi, unitCode: '237', unitName: 'Toàn tỉnh', chartName: members[0]!.chartName,
+        monthlyRevenue: sum('monthlyRevenue'), monthlyPlan: sum('monthlyPlan'), cumulativeRevenue,
+        cumulativePlan: sum('cumulativePlan'), annualPlan, rank: null, cumulativeRank: null, annualRank: null,
+        monthlyChange: members.every(row => row.monthlyChange != null)
+          ? members.reduce((total, row) => total + row.monthlyChange!, 0) : null,
+        remainingAnnual: annualPlan != null && annualPlan > 0 && cumulativeRevenue != null ? annualPlan - cumulativeRevenue : null });
+    }
+    return { month, rows: [...provinces, ...areas] };
+  }
+
   async v2SubscriberReport(month: string): Promise<{ month: string; rows: KpiV2SubscriberRow[] }> {
     const snapshot = month.replace('-', '');
     const rows = await this.oracleService.executeQuery<Record<string, unknown>>(
@@ -270,7 +381,8 @@ export class KpiService {
     };
   }
 
-  async v2UnitTrend(input: { month: string; kpi: string; unitCode: string }): Promise<{ month: string; kpi: string; unitCode: string; rows: KpiV2TrendRow[] }> {
+  async v2UnitTrend(input: { month: string; kpi: string; unitCode: string; group?: KpiV2Group; unitScope?: PtmUnitScope }): Promise<{ month: string; kpi: string; unitCode: string; rows: KpiV2TrendRow[] }> {
+    if (input.group === 'ptm') return this.v2PtmUnitTrend(input);
     const reportMonth = input.month.replace('-', '');
     const firstMonth = `${reportMonth.slice(0, 4)}01`;
     const result = await this.oracleService.executeQuery<Record<string, unknown>>(
@@ -324,6 +436,39 @@ export class KpiService {
         };
       }),
     };
+  }
+
+  private async v2PtmUnitTrend(input: { month: string; kpi: string; unitCode: string; unitScope?: PtmUnitScope }): Promise<{ month: string; kpi: string; unitCode: string; rows: KpiV2TrendRow[] }> {
+    const reportMonth = input.month.replace('-', '');
+    const months = Array.from({ length: Number(reportMonth.slice(4)) }, (_, index) =>
+      `${reportMonth.slice(0, 4)}-${String(index + 1).padStart(2, '0')}`);
+    const byMonth = new Map<string, KpiV2Row>();
+    if (PTM_REVENUE_KPI.test(input.kpi.toUpperCase())) {
+      const lookup = await this.ptmAreaLookup();
+      for (let index = 0; index < months.length; index += 3) {
+        const batch = months.slice(index, index + 3);
+        const reports = await Promise.all(batch.map(month => this.fiberDevelopment(month)));
+        reports.forEach((report, offset) => {
+          const row = this.ptmAreaRows(report.rows, lookup, input.unitScope ?? 'area')
+            .find(item => item.kpi === input.kpi.toUpperCase() && item.unitCode === input.unitCode);
+          if (row) byMonth.set(batch[offset]!, row);
+        });
+      }
+    }
+    return { month: input.month, kpi: input.kpi, unitCode: input.unitCode, rows: months.map((month, index) => {
+      const row = byMonth.get(month);
+      const previous = index > 0 ? byMonth.get(months[index - 1]!) : undefined;
+      return {
+        month,
+        monthlyRevenue: row?.monthlyRevenue ?? null,
+        monthlyPlan: row?.monthlyPlan ?? null,
+        cumulativeRevenue: row?.cumulativeRevenue ?? null,
+        cumulativePlan: row?.cumulativePlan ?? null,
+        annualPlan: row?.annualPlan ?? null,
+        monthlyChange: row?.monthlyRevenue != null && previous?.monthlyRevenue != null ? row.monthlyRevenue - previous.monthlyRevenue : null,
+        remainingAnnual: row?.remainingAnnual ?? null,
+      };
+    }) };
   }
 
   async fiberPsc(month: string): Promise<{ month: string; rows: KpiFiberPscRow[] }> {

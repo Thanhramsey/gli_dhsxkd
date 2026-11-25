@@ -3,6 +3,27 @@ import { OracleService } from '../../database/oracle.service.js';
 import { KpiService } from './kpi.service.js';
 
 describe('KpiService.v2Report', () => {
+  it.each(['area', 'ttvt', 'vnpt'] as const)('compares PTM with the preceding month for scope %s, including January rollover', async unitScope => {
+    const executeQuery = vi.fn().mockResolvedValue([
+      { UNIT_GROUP: 'TTVT', UNIT_CODE: '1', AREA_ID: '101', AREA_NAME: 'An Khê' },
+      { UNIT_GROUP: 'VNPT', UNIT_CODE: 'A1', AREA_ID: '101', AREA_NAME: 'An Khê' },
+    ]);
+    const executeProcedure = vi.fn().mockImplementation((_package, _procedure, binds) => {
+      const current = binds.P_MONTH.val === '202601';
+      return Promise.resolve({ outBinds: { RSOUT: [
+        { MA_KPI: 'DTPTM_FIBER', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: current ? 80 : 100 },
+        { MA_KPI: 'DTPTM_FIBER', NHOM_DVI: 'VNPT', MA_DV: 'A1', THUCHIEN_THANG: current ? 50 : 0 },
+        ...(current ? [{ MA_KPI: 'DTPTM_MESH', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: 10 }] : []),
+      ] } });
+    });
+    const service = new KpiService({ executeQuery, executeProcedure } as unknown as OracleService);
+    const report = await service.v2Report('2026-01', 'ptm', unitScope);
+    expect(executeProcedure.mock.calls.map(call => call[2].P_MONTH.val)).toEqual(['202601', '202512']);
+    const change = unitScope === 'area' ? 30 : unitScope === 'ttvt' ? -20 : 50;
+    expect(report.rows.filter(row => row.kpi === 'DTPTM_FIBER').map(row => row.monthlyChange)).toEqual([change, change]);
+    expect(report.rows.filter(row => row.kpi === 'DTPTM_MESH').every(row => row.monthlyChange === null)).toBe(true);
+  });
+
   it('reads every C3 KPI, including a new code, and keeps zero plans distinct from missing data', async () => {
     const executeQuery = vi.fn().mockResolvedValue([{
       KPI: 'F1.FIBER_C3', MA_DV: '237', TEN_DV: 'GLI', BIEUDO: 'Tổng doanh thu Dịch vụ FIBER',
@@ -72,9 +93,83 @@ describe('KpiService.v2Report', () => {
       kpiPattern: expect.objectContaining({ val: '_C3_DT$' }),
     });
   });
+
+  it('sums TTVT and VNPT by DIABAN_ID and supports separate PTM scopes', async () => {
+    const executeQuery = vi.fn()
+      .mockResolvedValueOnce([{ REPORT_MONTH: '202610' }])
+      .mockResolvedValue([{ UNIT_GROUP: 'TTVT', UNIT_CODE: '1', AREA_ID: '101', AREA_NAME: 'An Khê' },
+        { UNIT_GROUP: 'VNPT', UNIT_CODE: 'A1', AREA_ID: '101', AREA_NAME: 'An Khê' },
+        { UNIT_GROUP: 'TTVT', UNIT_CODE: '2', AREA_ID: '102', AREA_NAME: 'Quy Nhơn' }]);
+    const executeProcedure = vi.fn().mockResolvedValue({ outBinds: { RSOUT: [
+      { MA_KPI: 'DTPTM_FIBER', TEN_KPI: 'Doanh thu PTM Fiber', NHOM_DVI: 'TOANTINH', MA_DV: 'GLI', TEN_DV: 'Gia Lai', KE_HOACH_THANG: 300, THUCHIEN_THANG: 250, KE_HOACH_THANG_LK: 1000, THUCHIEN_LK: 900, KE_HOACH_NAM: 2000 },
+      { MA_KPI: 'DTPTM_FIBER', TEN_KPI: 'Doanh thu PTM Fiber', NHOM_DVI: 'TTVT', MA_DV: '1', TEN_DV: 'An Khê', KE_HOACH_THANG: 100, THUCHIEN_THANG: 90, KE_HOACH_THANG_LK: 200, THUCHIEN_LK: 180, KE_HOACH_NAM: 500 },
+      { MA_KPI: 'DTPTM_FIBER', TEN_KPI: 'Doanh thu PTM Fiber', NHOM_DVI: 'VNPT', MA_DV: 'A1', TEN_DV: 'VNPT An Khê', KE_HOACH_THANG: 50, THUCHIEN_THANG: 60, KE_HOACH_THANG_LK: 100, THUCHIEN_LK: 120, KE_HOACH_NAM: 250 },
+      { MA_KPI: 'DTPTM_FIBER', TEN_KPI: 'Doanh thu PTM Fiber', NHOM_DVI: 'TTVT', MA_DV: '2', TEN_DV: 'Quy Nhơn', KE_HOACH_THANG: 100, THUCHIEN_THANG: 120, KE_HOACH_THANG_LK: 200, THUCHIEN_LK: 240, KE_HOACH_NAM: 500 },
+      { MA_KPI: 'DTPTM_MYTV', TEN_KPI: 'Doanh thu PTM MyTV', NHOM_DVI: 'TTVT', MA_DV: '1', TEN_DV: 'An Khê', KE_HOACH_THANG: 0, THUCHIEN_THANG: 10, KE_HOACH_THANG_LK: 0, THUCHIEN_LK: 30, KE_HOACH_NAM: 0 },
+      { MA_KPI: 'DTPTM_MESH', TEN_KPI: 'Doanh thu PTM Mesh', NHOM_DVI: 'TTVT', MA_DV: '1', TEN_DV: 'An Khê', KE_HOACH_THANG: 40, THUCHIEN_THANG: 36, KE_HOACH_THANG_LK: 80, THUCHIEN_LK: 72, KE_HOACH_NAM: 150 },
+      { MA_KPI: 'DTPTM_CAMERA', TEN_KPI: 'Doanh thu PTM Camera', NHOM_DVI: 'TTVT', MA_DV: '2', TEN_DV: 'Quy Nhơn', KE_HOACH_THANG: 50, THUCHIEN_THANG: 55, KE_HOACH_THANG_LK: 100, THUCHIEN_LK: 105, KE_HOACH_NAM: 220 },
+      { MA_KPI: 'SLPTM_FIBER', TEN_KPI: 'Thuê bao PTM Fiber', NHOM_DVI: 'TTVT', MA_DV: '1', TEN_DV: 'An Khê', KE_HOACH_THANG: 20, THUCHIEN_THANG: 15 },
+    ] } });
+    const service = new KpiService({ executeQuery, executeProcedure } as unknown as OracleService);
+
+    expect(await service.v2Months('ptm')).toEqual({ months: ['202610'] });
+    const report = await service.v2Report('2026-10', 'ptm');
+
+    expect(executeQuery).toHaveBeenCalledWith(expect.stringContaining('NBH_CDS_NEW.GLI_TH_CHITIEUGB'));
+    expect(executeQuery).toHaveBeenCalledWith(expect.stringContaining("REGEXP_LIKE(TRIM(UPPER(MA_KPI)), '^DTPTM_[A-Z0-9_]+$')"));
+    expect(executeProcedure).toHaveBeenCalledWith('NBH_CDS_NEW.BCGIAOBAN_GLI', 'SP_VIEW_PTM', expect.objectContaining({
+      P_MONTH: expect.objectContaining({ val: '202610' }),
+      RSOUT: expect.objectContaining({ dir: expect.any(Number) }),
+    }));
+    expect(report.rows).toHaveLength(9);
+    expect(report.rows).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kpi: 'DTPTM_FIBER', unitCode: '237', monthlyRevenue: 270, monthlyPlan: 250, cumulativeRevenue: 540, cumulativePlan: 500, annualPlan: 1250 }),
+      expect.objectContaining({ kpi: 'DTPTM_FIBER', unitCode: '102', rank: 1, cumulativeRank: 1, annualRank: 1 }),
+      expect.objectContaining({ kpi: 'DTPTM_FIBER', unitCode: '101', monthlyRevenue: 150, monthlyPlan: 150, cumulativeRevenue: 300, cumulativePlan: 300, annualPlan: 750, rank: 2 }),
+      expect.objectContaining({ kpi: 'DTPTM_MYTV', unitCode: '101', rank: null, remainingAnnual: null }),
+      expect.objectContaining({ kpi: 'DTPTM_MESH', unitCode: '101', monthlyRevenue: 36, rank: 1 }),
+      expect.objectContaining({ kpi: 'DTPTM_CAMERA', unitCode: '102', monthlyRevenue: 55, rank: 1 }),
+    ]));
+    const ttvt = await service.v2Report('2026-10', 'ptm', 'ttvt');
+    const vnpt = await service.v2Report('2026-10', 'ptm', 'vnpt');
+    expect(ttvt.rows.find(row => row.kpi === 'DTPTM_FIBER' && row.unitCode === '101')).toMatchObject({ monthlyRevenue: 90, monthlyPlan: 100 });
+    expect(vnpt.rows).toEqual([
+      expect.objectContaining({ kpi: 'DTPTM_FIBER', unitCode: '237', monthlyRevenue: 60 }),
+      expect.objectContaining({ kpi: 'DTPTM_FIBER', unitCode: '101', monthlyRevenue: 60 }),
+    ]);
+  });
 });
 
 describe('KpiService.v2UnitTrend', () => {
+  it('builds PTM unit history from monthly bound procedure calls', async () => {
+    const executeProcedure = vi.fn().mockImplementation((_package, _procedure, binds) => {
+      const january = binds.P_MONTH.val === '202601';
+      return Promise.resolve({ outBinds: { RSOUT: [{
+        MA_KPI: 'DTPTM_FIBER', NHOM_DVI: 'TTVT', MA_DV: '1', TEN_DV: 'An Khê',
+        KE_HOACH_THANG: 20, THUCHIEN_THANG: january ? 10 : 15,
+        KE_HOACH_THANG_LK: january ? 20 : 40, THUCHIEN_LK: january ? 10 : 25,
+        KE_HOACH_NAM: 100,
+      }, {
+        MA_KPI: 'DTPTM_FIBER', NHOM_DVI: 'VNPT', MA_DV: 'A1', TEN_DV: 'VNPT An Khê',
+        KE_HOACH_THANG: 5, THUCHIEN_THANG: january ? 2 : 4,
+        KE_HOACH_THANG_LK: january ? 5 : 10, THUCHIEN_LK: january ? 2 : 6,
+        KE_HOACH_NAM: 20,
+      }] } });
+    });
+    const executeQuery = vi.fn().mockResolvedValue([{ UNIT_GROUP: 'TTVT', UNIT_CODE: '1', AREA_ID: '101', AREA_NAME: 'An Khê' },
+      { UNIT_GROUP: 'VNPT', UNIT_CODE: 'A1', AREA_ID: '101', AREA_NAME: 'An Khê' }]);
+    const service = new KpiService({ executeProcedure, executeQuery } as unknown as OracleService);
+
+    const result = await service.v2UnitTrend({ month: '2026-02', kpi: 'DTPTM_FIBER', unitCode: '101', group: 'ptm' });
+
+    expect(executeProcedure).toHaveBeenCalledTimes(2);
+    expect(executeProcedure.mock.calls.map(call => call[2].P_MONTH.val)).toEqual(['202601', '202602']);
+    expect(result.rows).toEqual([
+      expect.objectContaining({ month: '2026-01', monthlyRevenue: 12, monthlyPlan: 25, monthlyChange: null, remainingAnnual: 108 }),
+      expect.objectContaining({ month: '2026-02', monthlyRevenue: 19, monthlyPlan: 25, monthlyChange: 7, remainingAnnual: 89 }),
+    ]);
+  });
+
   it('binds KPI, unit and months, and keeps missing months empty', async () => {
     const executeQuery = vi.fn().mockResolvedValue([
       { REPORT_MONTH: '202601', DOANH_THU: 1_000_000, KE_HOACH_THANG: 2_000_000, DOANH_THU_LK: 1_000_000, KE_HOACH_LK_THANG: 2_000_000, KE_HOACH_LK_NAM: 24_000_000, TANG_GIAM: 100_000, CON_LAI_NAM: 23_000_000 },
