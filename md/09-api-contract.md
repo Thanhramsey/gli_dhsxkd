@@ -53,6 +53,8 @@ Các API sau yêu cầu session. Trường `group` nhận `actual`, `maintenance
 
 Response `/kpi/v2-report` với `group: "ptm"` có thêm `subscriberRows` gồm các KPI `SLPTM_*`: `kpi`, `unitCode`, `unitName`, `chartName`, `monthlyCount`, `previousCount`, `change`, `cumulativeCount`. Các số này tính theo thuê bao, không chia cho triệu/tỷ. Giữ `null` khi thiếu dữ liệu; `change` là tháng báo cáo trừ tháng liền trước.
 
+`subscriberRows` còn trả `monthlyPlan`, `annualPlan` từ proc sau khi gom đơn vị. Giao diện sản lượng dùng biểu đồ hai thanh ghép so sánh tháng trước (cam vàng) và tháng báo cáo (xanh VNPT), cùng bảng tháng trước, tháng báo cáo, tăng/giảm, thực hiện lũy kế; sắp theo sản lượng tháng giảm dần.
+
 Phạm vi PTM `area` bao gồm cả `TTCSKH`, `TTKDGP` dưới dạng đơn vị riêng. Các dòng này có `unitCode` dạng `TTCSKH:MA_DV` / `TTKDGP:MA_DV`, `isTerritory: false` trong cả `rows` và `subscriberRows`; không hiển thị trên bản đồ vùng. Dùng nguyên `unitCode` đó khi gọi `/kpi/v2-unit-trend`.
 
 ## Chuyển sang SSO

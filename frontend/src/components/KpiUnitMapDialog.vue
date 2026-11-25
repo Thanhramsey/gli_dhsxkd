@@ -86,10 +86,16 @@ const centerUnit = (key: string) => units.value.find(unit => unit.areaId === key
 const focusedWards = computed(() => focusedUnit.value
   ? wards.filter(ward => wardCenter[ward.code] === focusedUnit.value!.areaId)
   : [])
+const wardMenuOpen = ref(false)
+const wardDetails = ref<{ name: string; wards: ServiceWard[] }>({ name: '', wards: [] })
+watch(wardMenuOpen, open => {
+  if (open) wardDetails.value = { name: focusedUnit.value?.name ?? '', wards: [...focusedWards.value] }
+})
 const maxActual = computed(() => Math.max(0, ...units.value.map(unit => unit.actual ?? 0)))
 const relativeActual = (actual: number | null) => maxActual.value > 0 ? Math.max(0, actual ?? 0) / maxActual.value * 100 : 0
 
 watch(dialogOpen, open => {
+  wardMenuOpen.value = false
   requestVersion += 1
   clearHoverTimer()
   if (!open) return
@@ -248,7 +254,15 @@ onBeforeUnmount(clearHoverTimer)
                     <strong>{{ focusedUnit.annualRemaining == null ? 'Chưa có dữ liệu' : `${money(Math.abs(focusedUnit.annualRemaining))} triệu đồng` }}</strong>
                   </div>
                   <small class="map-focus-unit">Đơn vị: triệu đồng</small>
-                  <div class="map-focus-wards"><strong>{{ focusedWards.length }} xã/phường phụ trách</strong><span>{{ focusedWards.map(ward => ward.fullName).join(' · ') }}</span></div>
+                  <div class="map-focus-wards">
+                    <v-menu v-model="wardMenuOpen" :close-on-content-click="false" location="bottom end" max-width="380">
+                      <template #activator="{ props: menuProps }"><v-btn v-bind="menuProps" size="small" variant="text" color="primary" prepend-icon="mdi-map-marker-multiple-outline" :append-icon="wardMenuOpen ? 'mdi-chevron-up' : 'mdi-chevron-down'" :disabled="!focusedWards.length">Xem {{ focusedWards.length }} xã/phường</v-btn></template>
+                      <v-card class="ward-details" min-width="260" max-width="380">
+                        <v-card-title class="ward-details-title"><div><strong>{{ wardDetails.name }}</strong><small>{{ wardDetails.wards.length }} xã/phường phụ trách</small></div><v-btn icon="mdi-close" size="x-small" variant="text" aria-label="Đóng danh sách xã phường" @click="wardMenuOpen = false" /></v-card-title>
+                        <v-list class="ward-details-list" density="compact"><v-list-item v-for="ward in wardDetails.wards" :key="ward.code" :title="ward.fullName" /></v-list>
+                      </v-card>
+                    </v-menu>
+                  </div>
                 </div>
                 <span v-else key="hint" class="map-focus-hint">Chọn một địa bàn trong danh sách để xem số liệu.</span>
             </div>
@@ -295,13 +309,12 @@ onBeforeUnmount(clearHoverTimer)
 .map-service-items i{flex:none;width:11px;height:11px;border-radius:3px;border:1px solid rgba(0,0,0,.12)}
 .map-service-items small{color:rgba(var(--v-theme-on-surface),.55)}
 .map-focus-wards{margin-top:10px;padding-top:8px;border-top:1px solid rgba(var(--v-border-color),.2)}
-.map-focus-wards strong,.map-focus-wards span{display:block;font-size:11px;line-height:1.45}
-.map-focus-wards span{max-height:55px;overflow-y:auto;margin-top:3px;color:rgba(var(--v-theme-on-surface),.7)}
-.map-focus{position:relative;height:258px;min-height:258px;overflow:hidden;background:color-mix(in srgb,rgb(var(--v-theme-primary)) 11%,rgb(var(--v-theme-surface)))}
+.map-focus-wards :deep(.v-btn){padding:0 4px;min-height:25px;height:25px;font-size:11px;text-transform:none;letter-spacing:0}
+.ward-details-title{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px;background:rgba(var(--v-theme-primary),.08)}.ward-details-title strong{display:block;font-size:14px}.ward-details-title small{display:block;font-size:11px;opacity:.65;margin-top:3px}.ward-details-list{max-height: min(320px,55vh);overflow-y:auto}.ward-details-list :deep(.v-list-item-title){font-size:12px;white-space:normal}
+.map-focus{position:relative;height:224px;min-height:224px;overflow:hidden;background:color-mix(in srgb,rgb(var(--v-theme-primary)) 11%,rgb(var(--v-theme-surface)))}
 .map-focus-empty{display:block}
 .map-focus-content{width:100%}
 .map-focus-hint{display:flex;align-items:center;height:100%;color:rgba(var(--v-theme-on-surface),.62);font-size:12px;line-height:1.5}
-.map-focus-wards span{height:45px;max-height:none}
 .map-focus-top{align-items:center}.map-focus-top strong{font-size:16px;color:rgb(var(--v-theme-on-surface))}.map-focus-top span{padding:4px 8px;border-radius:6px;background:rgba(var(--v-theme-primary),.1)}
 .map-focus-metrics{gap:6px;margin-top:12px}.map-focus-metrics>div{padding:8px 9px;border-radius:7px;background:rgba(var(--v-theme-surface),.9)}.map-focus-metrics small{font-size:10px;line-height:1.35}.map-focus-metrics strong{font-size:16px;line-height:1.35;font-weight:800;font-variant-numeric:tabular-nums}
 .map-focus-insight{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:39px;margin-top:9px;padding:7px 10px;border-radius:7px;background:rgba(var(--v-theme-primary),.08);color:rgb(var(--v-theme-primary))}.map-focus-insight>span{font-size:11px;font-weight:650}.map-focus-insight>span small{display:block;margin-top:2px;font-size:10px;font-weight:500;opacity:.8}.map-focus-insight strong{display:inline-flex;align-items:center;gap:4px;font-size:13px;font-weight:800;white-space:nowrap;font-variant-numeric:tabular-nums}.map-focus-insight strong small{font-size:10px;font-weight:500}.map-focus-insight.is-up{background:rgba(32,152,79,.12);color:#177945}.map-focus-insight.is-down{background:rgba(213,66,75,.11);color:#c52f3c}

@@ -43,7 +43,7 @@ async function submit() {
         </div>
         <p class="login-kicker">DỮ LIỆU • ĐIỀU HÀNH • HIỆU QUẢ</p>
         <h1>Hệ thống Dashboard<br />điều hành sản xuất kinh doanh</h1>
-        <p>Tổng hợp thông tin quản trị, phân quyền theo nhóm người dùng và sẵn sàng tích hợp SSO VNPT.</p>
+        <!-- <p>Tổng hợp thông tin quản trị, phân quyền theo nhóm người dùng và sẵn sàng tích hợp SSO VNPT.</p> -->
         <div class="visual-bars"><i /><i /><i /><i /><i /></div>
       </div>
     </section>
@@ -88,7 +88,7 @@ async function submit() {
           </v-btn>
           <p v-if="submitting" class="submit-status" role="status">Đang xác thực tài khoản...</p>
         </v-form>
-        <p class="login-card__note">Giai đoạn hiện tại không yêu cầu mật khẩu. Khi tích hợp SSO, màn hình này sẽ được thay bằng luồng xác thực tập trung.</p>
+        <!-- <p class="login-card__note">Giai đoạn hiện tại không yêu cầu mật khẩu. Khi tích hợp SSO, màn hình này sẽ được thay bằng luồng xác thực tập trung.</p> -->
       </v-card>
       <p class="login-footer">© {{ new Date().getFullYear() }} VNPT Gia Lai</p>
     </v-sheet>

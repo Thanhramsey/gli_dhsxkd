@@ -102,6 +102,8 @@ export const useDashboardStore = defineStore('dashboard', {
 - Mặc định sử dụng component Vuetify thay vì HTML element tự tạo cho các thành phần tương tác và bố cục mà Vuetify đã hỗ trợ.
 - Dùng hệ thống layout của Vuetify (`v-container`, `v-row`, `v-col`) để dashboard responsive tốt trên nhiều màn hình.
 - Dùng `v-card` làm khung chuẩn cho mỗi widget/chart, tiêu đề rõ ràng, có slot cho filter riêng nếu cần.
+- Bo góc các khối bọc (card, bảng, panel, popup, khung bản đồ và thông tin) thống nhất **5px**, dùng token `--app-panel-radius` trong `src/style.css`. Không tăng bo góc riêng ở từng màn hình.
+- Biểu đồ cơ cấu doanh thu giao ban v2 dùng màu theo dịch vụ từ `src/utils/kpi-service-color.ts`, không theo vị trí KPI: Fiber cam, MyTV/MyTVFIX đỏ hồng, Mesh tím, Camera/CAM xanh dương, Internet trực tiếp xanh ngọc, CNTT xanh lá, TSL tím hồng. Giữ cùng mã màu giữa tab thực hiện, duy trì và PTM; chú thích dùng đúng màu của lát biểu đồ. Màu đánh giá hoàn thành/xếp hạng vẫn theo quy tắc nghiệp vụ riêng.
 - Các khối bao ngoài (khung biểu đồ, bảng, bản đồ, panel thông tin hoặc xếp hạng) phải có shadow nhẹ để tạo chiều sâu, đi cùng viền mờ và góc bo thống nhất. Áp dụng cho cả trang và popup, kiểm tra độ tương phản ở theme sáng/tối. Mẫu shadow: `0 2px 5px rgba(18,48,70,.05), 0 8px 22px rgba(18,48,70,.10)`; viền dùng `rgba(var(--v-border-color),.12)`. Không chồng nhiều lớp shadow đậm lên các ô nhỏ bên trong cùng khối.
 - Theme màu: định nghĩa 1 lần trong `plugins/vuetify.ts` (light/dark nếu cần), không hardcode màu trong từng component
   — để đồng bộ với màu dùng trong ECharts.

@@ -6,6 +6,7 @@ import { kpiApi } from '../api/kpi.api'
 import { getAuthErrorMessage } from '../api/auth.api'
 import type { KpiV2Code, KpiV2Group, KpiV2Row, KpiV2TrendRow, KpiV2SubscriberRow, PtmUnitScope } from '../types/kpi'
 import { adaptChartOptionForTheme } from '../utils/chart-theme'
+import { kpiServiceColor } from '../utils/kpi-service-color'
 import KpiUnitMapDialog from '../components/KpiUnitMapDialog.vue'
 import PtmSubscriberDashboard from '../components/charts/PtmSubscriberDashboard.vue'
 import type { KpiV2PtmSubscriberRow } from '../types/kpi'
@@ -14,7 +15,6 @@ import '../plugins/echarts'
 type AmountKey = 'monthlyRevenue' | 'monthlyPlan' | 'cumulativeRevenue' | 'cumulativePlan' | 'annualPlan' | 'monthlyChange' | 'remainingAnnual'
 type UnitPeriod = 'monthly' | 'cumulative' | 'annual'
 const provinceCode = '237'
-const kpiColors = ['#0789c7', '#16a6a0', '#e99a28', '#8b61cf', '#e05b65', '#7da934', '#b768a3', '#4c79c5']
 const achievedColor = '#20984f'
 const unmetColor = '#d5424b'
 const topColor = '#1674c6'
@@ -81,10 +81,10 @@ const kpis = computed(() => {
     if (!names.has(row.kpi) || !names.get(row.kpi)) names.set(row.kpi, row.chartName.trim())
   }
   return [...names.entries()].sort((a, b) => a[0].localeCompare(b[0], 'vi', { numeric: true }))
-  .map(([code, chartName], index) => {
+  .map(([code, chartName]) => {
     const title = chartName.replace(/^Tổng\s+/i, '').trim() || code
     const label = title.replace(/^Doanh thu\s+(?:dịch vụ\s+)?/i, '').trim() || code
-    return { code, title, label, color: kpiColors[index % kpiColors.length] }
+    return { code, title, label, color: kpiServiceColor(code, title) }
   })
 })
 watch(kpis, options => {
@@ -422,6 +422,7 @@ function selectMonth(selectedMonth: number) {
   error.value = ''
   subscriberError.value = ''
   unitCode.value = null
+  void load()
 }
 
 async function load() {

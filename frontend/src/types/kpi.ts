@@ -79,6 +79,8 @@ export interface KpiV2Report {
 }
 
 export interface KpiV2PtmSubscriberRow {
+  monthlyPlan: number | null
+  annualPlan: number | null
   isTerritory?: boolean
   kpi: string
   unitCode: string

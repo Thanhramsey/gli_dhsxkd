@@ -351,6 +351,7 @@ export class KpiService {
         kpi: row.kpi, unitCode: row.unitCode, unitName: row.unitName, chartName: row.chartName,
         isTerritory: row.isTerritory,
         monthlyCount: row.monthlyRevenue, cumulativeCount: row.cumulativeRevenue,
+        monthlyPlan: row.monthlyPlan, annualPlan: row.annualPlan,
         previousCount: row.monthlyRevenue != null && row.monthlyChange != null ? row.monthlyRevenue - row.monthlyChange : null,
         change: row.monthlyChange,
       })),

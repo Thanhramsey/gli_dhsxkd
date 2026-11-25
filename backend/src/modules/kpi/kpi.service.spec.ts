@@ -45,8 +45,8 @@ describe('KpiService.v2Report', () => {
       return Promise.resolve({ outBinds: { RSOUT: [
         { MA_KPI: 'DTPTM_FIBER', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: current ? 80 : 100 },
         { MA_KPI: 'DTPTM_FIBER', NHOM_DVI: 'VNPT', MA_DV: 'A1', THUCHIEN_THANG: current ? 50 : 0 },
-        { MA_KPI: 'SLPTM_CAMERA', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: current ? 8 : 10, THUCHIEN_LK: 8 },
-        { MA_KPI: 'SLPTM_CAMERA', NHOM_DVI: 'VNPT', MA_DV: 'A1', THUCHIEN_THANG: current ? 5 : 0, THUCHIEN_LK: 5 },
+        { MA_KPI: 'SLPTM_CAMERA', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: current ? 8 : 10, THUCHIEN_LK: 8, KE_HOACH_THANG: 10, KE_HOACH_NAM: 100 },
+        { MA_KPI: 'SLPTM_CAMERA', NHOM_DVI: 'VNPT', MA_DV: 'A1', THUCHIEN_THANG: current ? 5 : 0, THUCHIEN_LK: 5, KE_HOACH_THANG: 5, KE_HOACH_NAM: 50 },
         ...(current ? [{ MA_KPI: 'DTPTM_MESH', NHOM_DVI: 'TTVT', MA_DV: '1', THUCHIEN_THANG: 10 }] : []),
       ] } });
     });
@@ -59,9 +59,10 @@ describe('KpiService.v2Report', () => {
     expect(report.rows.every(row => row.kpi.startsWith('DTPTM_'))).toBe(true);
     const count = unitScope === 'area' ? 13 : unitScope === 'ttvt' ? 8 : 5;
     const previousCount = unitScope === 'vnpt' ? 0 : 10;
+    const monthlyPlan = unitScope === 'area' ? 15 : unitScope === 'ttvt' ? 10 : 5;
     expect(report.subscriberRows).toEqual([
-      expect.objectContaining({ kpi: 'SLPTM_CAMERA', unitCode: '237', monthlyCount: count, previousCount, change: count - previousCount, cumulativeCount: count }),
-      expect.objectContaining({ kpi: 'SLPTM_CAMERA', unitCode: '101', monthlyCount: count, previousCount, change: count - previousCount, cumulativeCount: count }),
+      expect.objectContaining({ kpi: 'SLPTM_CAMERA', unitCode: '237', monthlyCount: count, previousCount, change: count - previousCount, cumulativeCount: count, monthlyPlan, annualPlan: monthlyPlan * 10 }),
+      expect.objectContaining({ kpi: 'SLPTM_CAMERA', unitCode: '101', monthlyCount: count, previousCount, change: count - previousCount, cumulativeCount: count, monthlyPlan, annualPlan: monthlyPlan * 10 }),
     ]);
   });
 

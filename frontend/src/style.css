@@ -1,4 +1,5 @@
 :root {
+  --app-panel-radius: 5px;
   font-family: 'Be Vietnam Pro', Tahoma, Arial, sans-serif;
   color: #223548;
   background: #f4f7fb;
@@ -28,3 +29,9 @@ select {
 }
 
 #app { min-height: 100vh; }
+
+/* Shared radius for content containers, including dialogs rendered in overlays. */
+:is(.v-card, .v-table, .report-shell, .report-table, .map-panel, .map-side,
+    .map-focus, .map-service-legend, .map-focus-insight, .map-focus-metrics > div) {
+  border-radius: var(--app-panel-radius) !important;
+}
